@@ -18,3 +18,5 @@ standards/
 ~$*
 Thumbs.db
 .DS_Store
+codex-plugin/.mcp.json
+.codex/config.toml

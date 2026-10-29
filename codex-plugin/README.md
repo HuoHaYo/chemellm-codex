@@ -1,9 +1,16 @@
-# Codex 适配层开发入口
+# ChemELLM Codex 插件
 
-该目录用于后续开发，目前只提供边界说明，不包含插件清单、MCP Server 或已安装配置。
+本目录包含 `.codex-plugin/plugin.json`、`chemellm-engineering` 技能，以及安装前由 `scripts/configure-codex.py` 生成的 `.mcp.json`。仓库根目录 `.agents/plugins/marketplace.json` 将插件登记为 `chemellm@chemellm-local`。
 
-现有可复用接口为本地内核的 `/v1/health`、`/v1/tools`、`/v1/projects`，项目内支持要求、计划、工程对象、执行、校核、打包和文件下载。
+先按仓库 README 安装 Python 包并生成配置，再执行：
 
-后续开发时先确认当前 Codex 插件与 MCP 接入格式，再实现工具适配、内核启动、令牌传递及资源输出。DSH 的工具、界面和 `cordis.patch.yml` 不作为 Codex 插件接口使用。
+```powershell
+codex plugin marketplace add "C:/path/to/ChemELLM-Codex"
+codex plugin add chemellm@chemellm-local
+```
 
-第一阶段可先让 Codex 调用已有本地内核完成“建项目 → 要求 → 计划 → 依据 → 计算 → 报告 → 校核 → 打包”，再决定是否需要额外界面。此处仅记录开发方向。
+配置生成器写入当前 Python 解释器及本仓库绝对路径，不写令牌，不修改用户 Codex 配置。`mcp.example.json` 仅展示格式。生成的 `.mcp.json` 不提交 Git；其他机器需自行生成。插件缓存依赖本机已安装的独立 ChemELLM Codex Python 包；不是包含 Python/FreeCAD/DWSIM 的便携运行时。
+
+MCP 用 `python -X utf8 -m chemellm_codex --workspace <本仓库>` 启动，在同一进程调用本仓库内核路由。它覆盖继承的 DSH 数据路径并启用严格阶段约束，不需要访问另一个仓库或监听 TCP。独立 HTTP 模式默认端口为 8766。
+
+协议回归命令：`.venv/Scripts/python.exe -X utf8 scripts/test_codex_mcp.py`。底层参数由 `chem_tools` 查询；自动校核不能替代专业审核。格式验证的来源、实际检查和限制见 [接入记录](../docs/codex-integration.md)。

@@ -1,7 +1,7 @@
 """ChemELLM local kernel (v1).
 
-A local-only HTTP service that wraps the archived ChemELLM toolchain (``old/app``)
-behind a small, stable contract used by the DSH plugin. It reuses the original
+A local-only HTTP service that wraps this repository's ``app`` toolchain
+behind a stable contract also used by the Codex MCP adapter. It reuses the original
 deterministic calculation engine, document generators and evidence tools instead
 of rewriting them.
 
@@ -32,27 +32,8 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 
-def _find_app_dir() -> Path:
-    """Locate the directory that *contains* the archived ``app`` package.
-
-    Workspace layout: <root>/old (contains app/).
-    Runtime layout:   <runtime> (contains app/, with kernel at <runtime>/kernel).
-    ``CHEMELLM_APP_DIR`` may point either at the package directory itself or at
-    its parent.
-    """
-    candidates: list[Path] = []
-    env = os.getenv("CHEMELLM_APP_DIR")
-    if env:
-        env_path = Path(env)
-        candidates.append(env_path.parent if (env_path / "documents.py").is_file() else env_path)
-    candidates.extend([ROOT / "old", ROOT, ROOT.parent / "old"])
-    for candidate in candidates:
-        if (candidate / "app" / "documents.py").is_file():
-            return candidate.resolve()
-    return ROOT / "old"
-
-
-OLD = _find_app_dir()
+if not (ROOT / "app" / "documents.py").is_file():
+    raise RuntimeError("ChemELLM requires its own app/ package alongside kernel/")
 DATA_ROOT = Path(os.getenv("CHEMELLM_DATA_ROOT") or (ROOT / "data"))
 KERNEL_DATA = Path(os.getenv("CHEMELLM_KERNEL_DATA") or (DATA_ROOT / "kernel"))
 PROJECTS_DIR = DATA_ROOT / "projects"
@@ -63,8 +44,8 @@ SNAPSHOT_DIR = Path(os.getenv("CHEMELLM_SNAPSHOT_DIR") or (ROOT / ".chem"))
 os.environ.setdefault("CHEMELLM_DATA_DIR", str(KERNEL_DATA))
 for folder in (KERNEL_DATA, PROJECTS_DIR, BUNDLES_DIR, SNAPSHOT_DIR):
     folder.mkdir(parents=True, exist_ok=True)
-if str(OLD) not in sys.path:
-    sys.path.insert(0, str(OLD))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
@@ -169,7 +150,7 @@ init_db()
 
 app = FastAPI(title="ChemELLM local kernel", version=KERNEL_VERSION)
 
-# 本地面板在 DSH Web UI（另一端口）中运行；只监听 loopback，允许跨源读取。
+# 可选本地 HTTP 客户端的跨源配置；Codex MCP 在进程内调用相同路由。
 # 若设置了 CHEMELLM_CORS_ORIGINS（逗号分隔），则只允许这些来源。
 _cors_env = os.environ.get("CHEMELLM_CORS_ORIGINS", "").strip()
 _cors_origins = [item.strip() for item in _cors_env.split(",") if item.strip()] or ["*"]
@@ -1549,7 +1530,7 @@ def bundle(project_id: str):
             "`calculations.json` 是工程数据，`files/` 是成果原件，`manifest.json` 记录文件哈希。",
             "",
             "## 复算步骤",
-            "1. 启动内核：`scripts\\start-kernel.cmd`（默认 http://127.0.0.1:8765）。",
+            "1. 启动 Codex MCP，或启动 HTTP 内核：`scripts\\start-kernel.cmd`（默认 http://127.0.0.1:8766）。",
             "2. 新建空项目或复用原项目 ID，按 `calculations.json` 顺序重放下列请求：",
             "",
             *(steps or ["（本项目没有可重放的计算记录）"]),
@@ -1596,6 +1577,6 @@ if __name__ == "__main__":
     import uvicorn
 
     host = os.getenv("CHEMELLM_KERNEL_HOST", "127.0.0.1")
-    port = int(os.getenv("CHEMELLM_KERNEL_PORT", "8765"))
+    port = int(os.getenv("CHEMELLM_KERNEL_PORT", "8766"))
     print(f"ChemELLM local kernel {KERNEL_VERSION} -> http://{host}:{port} (data: {DATA_ROOT})")
     uvicorn.run(app, host=host, port=port, log_level="info")

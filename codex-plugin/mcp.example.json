@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "chemellm": {
+      "command": "C:/path/to/ChemELLM-Codex/.venv/Scripts/python.exe",
+      "args": ["-X", "utf8", "-m", "chemellm_codex", "--workspace", "C:/path/to/ChemELLM-Codex"],
+      "startup_timeout_sec": 60,
+      "tool_timeout_sec": 600
+    }
+  }
+}

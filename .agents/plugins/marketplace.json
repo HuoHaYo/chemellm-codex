@@ -1,0 +1,7 @@
+{
+  "name": "chemellm-local",
+  "interface": {"displayName": "ChemELLM Local"},
+  "plugins": [
+    {"name": "chemellm", "source": "./codex-plugin", "policy": {"installation": "AVAILABLE"}}
+  ]
+}

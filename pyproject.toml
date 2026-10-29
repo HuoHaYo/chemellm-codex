@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chemellm-codex"
-version = "0.1.0"
-description = "Chemical-engineering kernel and development workspace for a Codex integration"
+version = "0.2.0"
+description = "Local chemical-engineering tools and evidence workflow for Codex via MCP"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi==0.143.3",
@@ -31,11 +31,18 @@ dependencies = [
   "pdfplumber==0.11.9",
   "pypdfium2==5.8.0",
   "defusedxml==0.7.1",
+  "mcp==1.30.0",
 ]
+
+[project.scripts]
+chemellm-codex = "chemellm_codex.__main__:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
 simulation = ["cantera==3.2.0", "ruamel.yaml==0.18.16"]
 
 [tool.setuptools]
-packages = ["app", "kernel"]
+packages = ["app", "kernel", "chemellm_codex"]
+
+[tool.setuptools.package-data]
+kernel = ["dwsim/*.cs", "dwsim/*.exe", "dwsim/*.config"]
