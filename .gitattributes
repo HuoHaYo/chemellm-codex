@@ -1,0 +1,24 @@
+* text=auto eol=lf
+# 二进制文件：不做文本比较与换行转换
+*.pdf binary
+*.docx binary
+*.pptx binary
+*.xlsx binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.gz binary
+
+# 文本资源保持原样
+*.svg text
+*.md text
+*.py text
+*.js text
+*.json text
+*.yml text
+*.ps1 text
+*.cmd text eol=crlf

@@ -1,0 +1,378 @@
+{
+  "createdDate": "2026-10-29",
+  "sourceRepository": "C:\\Users\\Lenovo\\Desktop\\ChemELlm",
+  "sourceHead": "2c27fd410f255a3cd9015bc5ee4e9b5518cd0e89",
+  "snapshot": "Current working-tree files, including the DSH refactor not yet committed at copy time.",
+  "files": [
+    {
+      "source": "kernel/__init__.py",
+      "target": "kernel/__init__.py",
+      "sha256": "75c52d1f5f4d1bfa02d0dcdabd640f2aadb0bf8ff14b02ab121929acef6fb02f",
+      "sourceSha256": "75c52d1f5f4d1bfa02d0dcdabd640f2aadb0bf8ff14b02ab121929acef6fb02f"
+    },
+    {
+      "source": "kernel/cad_engineering.py",
+      "target": "kernel/cad_engineering.py",
+      "sha256": "7f1065f274fa9f9c8eb4a52e93c6c41a504bdd2128614a1284e4566999ceee6e",
+      "sourceSha256": "7f1065f274fa9f9c8eb4a52e93c6c41a504bdd2128614a1284e4566999ceee6e"
+    },
+    {
+      "source": "kernel/compliance.py",
+      "target": "kernel/compliance.py",
+      "sha256": "e708734f3960ce473bf7adf62e77b5dc9f8f0b186941a2bb271db95a9b47862b",
+      "sourceSha256": "e708734f3960ce473bf7adf62e77b5dc9f8f0b186941a2bb271db95a9b47862b"
+    },
+    {
+      "source": "kernel/datasheet.py",
+      "target": "kernel/datasheet.py",
+      "sha256": "84a3888eeaa6003455785c925c2a16207b2e75460862db8204b4999a954e3e02",
+      "sourceSha256": "84a3888eeaa6003455785c925c2a16207b2e75460862db8204b4999a954e3e02"
+    },
+    {
+      "source": "kernel/drawing_tools.py",
+      "target": "kernel/drawing_tools.py",
+      "sha256": "61e0186db1c633ae5b6794de3806ff7f73dd7521f8dc586f81d8dc7368de2073",
+      "sourceSha256": "61e0186db1c633ae5b6794de3806ff7f73dd7521f8dc586f81d8dc7368de2073"
+    },
+    {
+      "source": "kernel/dwsim/DwsimRunner.cs",
+      "target": "kernel/dwsim/DwsimRunner.cs",
+      "sha256": "d93478f8cfdb5aaf27d8f51c8786d19e60f4612c7cbf410aa043b9b338597bd3",
+      "sourceSha256": "cc9794066b99a9dd4a5b5330f0d67e3e82120905db960647075d2f4551cea276"
+    },
+    {
+      "source": "kernel/dwsim/DwsimRunner.exe",
+      "target": "kernel/dwsim/DwsimRunner.exe",
+      "sha256": "276e4368f0511954083d0f3a770e05708167904d8ea1932acc3d2bde7f145d82",
+      "sourceSha256": "276e4368f0511954083d0f3a770e05708167904d8ea1932acc3d2bde7f145d82"
+    },
+    {
+      "source": "kernel/dwsim/DwsimRunner.exe.config",
+      "target": "kernel/dwsim/DwsimRunner.exe.config",
+      "sha256": "5b0e64afaf1a0db5dbdf1d2e8d05e0a6e038d81f7f69536faf5e9f23777838d8",
+      "sourceSha256": "dc903df0a576221a12ea1849ed43d5ac513dda5ed6e5a02c4635abf33e4598e8"
+    },
+    {
+      "source": "kernel/dwsim_bridge.py",
+      "target": "kernel/dwsim_bridge.py",
+      "sha256": "911e66482319633690a286ea29f0b2620ce1402c882eb7ae3c8348a3fa0358f6",
+      "sourceSha256": "911e66482319633690a286ea29f0b2620ce1402c882eb7ae3c8348a3fa0358f6"
+    },
+    {
+      "source": "kernel/gear.py",
+      "target": "kernel/gear.py",
+      "sha256": "a879593cb30f9ad015d57c4f0f19507c7a9666e8f6b927be251f3a6daff60dcd",
+      "sourceSha256": "a879593cb30f9ad015d57c4f0f19507c7a9666e8f6b927be251f3a6daff60dcd"
+    },
+    {
+      "source": "kernel/hazop.py",
+      "target": "kernel/hazop.py",
+      "sha256": "df5800b6d942d4c970ae95c9ef535bf72643866eb53e75e995548ede99e311ce",
+      "sourceSha256": "df5800b6d942d4c970ae95c9ef535bf72643866eb53e75e995548ede99e311ce"
+    },
+    {
+      "source": "kernel/pid_data.py",
+      "target": "kernel/pid_data.py",
+      "sha256": "14aa433fea43eae977e56b225125dfd0cad97efbedaf8613aeb29548ac460ba8",
+      "sourceSha256": "14aa433fea43eae977e56b225125dfd0cad97efbedaf8613aeb29548ac460ba8"
+    },
+    {
+      "source": "kernel/pid_sheet.py",
+      "target": "kernel/pid_sheet.py",
+      "sha256": "86b1db881cec19b84a712c1f952aceda26412e6f8e58fc859fe1ff2d83ac30e5",
+      "sourceSha256": "86b1db881cec19b84a712c1f952aceda26412e6f8e58fc859fe1ff2d83ac30e5"
+    },
+    {
+      "source": "kernel/pid_standard.py",
+      "target": "kernel/pid_standard.py",
+      "sha256": "2e14a6d081e932dca3da82b7a844aa1a92c2c8e7c133f05a2550f89685c29d60",
+      "sourceSha256": "2e14a6d081e932dca3da82b7a844aa1a92c2c8e7c133f05a2550f89685c29d60"
+    },
+    {
+      "source": "kernel/relief.py",
+      "target": "kernel/relief.py",
+      "sha256": "f448f5f4ddbd989f3bcd866c7c1d186332c4e6b9c3dcd9c391978c979e310fc2",
+      "sourceSha256": "f448f5f4ddbd989f3bcd866c7c1d186332c4e6b9c3dcd9c391978c979e310fc2"
+    },
+    {
+      "source": "kernel/server.py",
+      "target": "kernel/server.py",
+      "sha256": "8f0799a2d22a25963dbe7e45d51b14c456c39971a733fb337f5fbabd9cf5ec53",
+      "sourceSha256": "8f0799a2d22a25963dbe7e45d51b14c456c39971a733fb337f5fbabd9cf5ec53"
+    },
+    {
+      "source": "old/app/__init__.py",
+      "target": "app/__init__.py",
+      "sha256": "6770af56b2b7e5237dbd7b892a629df2d587e8745becbf644aba911d0a844fe9",
+      "sourceSha256": "6770af56b2b7e5237dbd7b892a629df2d587e8745becbf644aba911d0a844fe9"
+    },
+    {
+      "source": "old/app/agent.py",
+      "target": "app/agent.py",
+      "sha256": "072a685b122cdae991270ea9d0e638f127929dd12652b7c1105093366ab0f2ac",
+      "sourceSha256": "072a685b122cdae991270ea9d0e638f127929dd12652b7c1105093366ab0f2ac"
+    },
+    {
+      "source": "old/app/aqueous.py",
+      "target": "app/aqueous.py",
+      "sha256": "ddf4c59222e5f1d81164a69be0a7709fdaea791399c3052da945af4dc8086c8a",
+      "sourceSha256": "ddf4c59222e5f1d81164a69be0a7709fdaea791399c3052da945af4dc8086c8a"
+    },
+    {
+      "source": "old/app/benchmarks.py",
+      "target": "app/benchmarks.py",
+      "sha256": "0b171fcf9b1c6bc3efcfd1f1858fec8530b011d35340e5cbd987ab0f7f1ac190",
+      "sourceSha256": "0b171fcf9b1c6bc3efcfd1f1858fec8530b011d35340e5cbd987ab0f7f1ac190"
+    },
+    {
+      "source": "old/app/calculations.py",
+      "target": "app/calculations.py",
+      "sha256": "5b7d287d08e42c78a0c9add8a91757fcd9d9bd32261dd56b03fe26f9f80f906d",
+      "sourceSha256": "5b7d287d08e42c78a0c9add8a91757fcd9d9bd32261dd56b03fe26f9f80f906d"
+    },
+    {
+      "source": "old/app/cantera_backend.py",
+      "target": "app/cantera_backend.py",
+      "sha256": "9fc592ac992a37716d9c35a2b65cef813181b99f59b25daa8453ae2f97e25572",
+      "sourceSha256": "9fc592ac992a37716d9c35a2b65cef813181b99f59b25daa8453ae2f97e25572"
+    },
+    {
+      "source": "old/app/catalog.py",
+      "target": "app/catalog.py",
+      "sha256": "b0fef85777b11b43136b2ab5453fa610442150884b47090e6442792f6f664e64",
+      "sourceSha256": "b0fef85777b11b43136b2ab5453fa610442150884b47090e6442792f6f664e64"
+    },
+    {
+      "source": "old/app/column.py",
+      "target": "app/column.py",
+      "sha256": "d3866f33418fa47d08673513009e92f850d7677a4342ee3a71bf61cd642edcd2",
+      "sourceSha256": "d3866f33418fa47d08673513009e92f850d7677a4342ee3a71bf61cd642edcd2"
+    },
+    {
+      "source": "old/app/competition.py",
+      "target": "app/competition.py",
+      "sha256": "1eba66951e1be96bdd9b2b9c26bfa34d138aa4216ebaa0d83721726e2e2e1970",
+      "sourceSha256": "1eba66951e1be96bdd9b2b9c26bfa34d138aa4216ebaa0d83721726e2e2e1970"
+    },
+    {
+      "source": "old/app/config.py",
+      "target": "app/config.py",
+      "sha256": "fc7581ae658611e7d978f2a979b5c391eb21c48e027852534db5ad7c7af17143",
+      "sourceSha256": "fc7581ae658611e7d978f2a979b5c391eb21c48e027852534db5ad7c7af17143"
+    },
+    {
+      "source": "old/app/conversations.py",
+      "target": "app/conversations.py",
+      "sha256": "85e2e4b2fc76d74b54288c850d9cfdfc09d74e67e70e3bdb4584040ef82482f7",
+      "sourceSha256": "85e2e4b2fc76d74b54288c850d9cfdfc09d74e67e70e3bdb4584040ef82482f7"
+    },
+    {
+      "source": "old/app/datasets.py",
+      "target": "app/datasets.py",
+      "sha256": "713eb256b9d5f2657c1c38b3f3f3371934cdcaee736cfb0008aa7ad8dfbfbb62",
+      "sourceSha256": "713eb256b9d5f2657c1c38b3f3f3371934cdcaee736cfb0008aa7ad8dfbfbb62"
+    },
+    {
+      "source": "old/app/db.py",
+      "target": "app/db.py",
+      "sha256": "edd8a768a3fd2ae26a7b90d28eef8c9aa4179b7377beaefe5683b81b47fc902a",
+      "sourceSha256": "edd8a768a3fd2ae26a7b90d28eef8c9aa4179b7377beaefe5683b81b47fc902a"
+    },
+    {
+      "source": "old/app/design_data.py",
+      "target": "app/design_data.py",
+      "sha256": "d8d26dc79f7443d433fb9e969e40c11d9e69d523e8e1624bf343a1bb24c0e7a2",
+      "sourceSha256": "d8d26dc79f7443d433fb9e969e40c11d9e69d523e8e1624bf343a1bb24c0e7a2"
+    },
+    {
+      "source": "old/app/diagrams.py",
+      "target": "app/diagrams.py",
+      "sha256": "cb799a82b2f3ceeadb48b14921df34827bd7fe6537efc3f288d7ecd6bf68b6b7",
+      "sourceSha256": "cb799a82b2f3ceeadb48b14921df34827bd7fe6537efc3f288d7ecd6bf68b6b7"
+    },
+    {
+      "source": "old/app/documents.py",
+      "target": "app/documents.py",
+      "sha256": "226dcb5d88b73b78037636d77d4bcfcc1f64009db7bf890ff893cbcc1f976f09",
+      "sourceSha256": "226dcb5d88b73b78037636d77d4bcfcc1f64009db7bf890ff893cbcc1f976f09"
+    },
+    {
+      "source": "old/app/drawing_io.py",
+      "target": "app/drawing_io.py",
+      "sha256": "b844497eb8086cdf2d5c862a2052f50eeb0c1739c373ce19a1c1a05bebb972bb",
+      "sourceSha256": "b844497eb8086cdf2d5c862a2052f50eeb0c1739c373ce19a1c1a05bebb972bb"
+    },
+    {
+      "source": "old/app/engineering.py",
+      "target": "app/engineering.py",
+      "sha256": "03eab8d46ab799991a5633929c71a4af42da912d50b5d86091db0864371c7059",
+      "sourceSha256": "03eab8d46ab799991a5633929c71a4af42da912d50b5d86091db0864371c7059"
+    },
+    {
+      "source": "old/app/equipment.py",
+      "target": "app/equipment.py",
+      "sha256": "64e3660f298644267a73d500695909f0b50f50d74c50af1b8e2ec1e2fadec1bf",
+      "sourceSha256": "64e3660f298644267a73d500695909f0b50f50d74c50af1b8e2ec1e2fadec1bf"
+    },
+    {
+      "source": "old/app/evidence.py",
+      "target": "app/evidence.py",
+      "sha256": "d25d9d1f43e6a93c23a747f2c8bcef968f02b69872f28eaa770d966d00459462",
+      "sourceSha256": "d25d9d1f43e6a93c23a747f2c8bcef968f02b69872f28eaa770d966d00459462"
+    },
+    {
+      "source": "old/app/examples.py",
+      "target": "app/examples.py",
+      "sha256": "15cdf44bcf513eb68d080cc431c7d572fcbcd8302d17421546a9121f0c7d8925",
+      "sourceSha256": "15cdf44bcf513eb68d080cc431c7d572fcbcd8302d17421546a9121f0c7d8925"
+    },
+    {
+      "source": "old/app/experimental.py",
+      "target": "app/experimental.py",
+      "sha256": "3dec7143967bebc3d102ccc626334cf1f9491c786d0478a9213329822f38f41a",
+      "sourceSha256": "3dec7143967bebc3d102ccc626334cf1f9491c786d0478a9213329822f38f41a"
+    },
+    {
+      "source": "old/app/frontend_process.py",
+      "target": "app/frontend_process.py",
+      "sha256": "5d248bfbb85ecc8f8f7569f1fb0feeb28a753ba77a982feded92d271f0153675",
+      "sourceSha256": "5d248bfbb85ecc8f8f7569f1fb0feeb28a753ba77a982feded92d271f0153675"
+    },
+    {
+      "source": "old/app/fulltext.py",
+      "target": "app/fulltext.py",
+      "sha256": "24f60233b9aaf5f5e261e498fc57f78d16e41617cc25cce7ab7d72a07d3dc8bf",
+      "sourceSha256": "24f60233b9aaf5f5e261e498fc57f78d16e41617cc25cce7ab7d72a07d3dc8bf"
+    },
+    {
+      "source": "old/app/hydrogen.py",
+      "target": "app/hydrogen.py",
+      "sha256": "bf146ce62c5260e63a009cae74e80351f6fd0c09539feb3054ae85db1cf0ffee",
+      "sourceSha256": "bf146ce62c5260e63a009cae74e80351f6fd0c09539feb3054ae85db1cf0ffee"
+    },
+    {
+      "source": "old/app/main.py",
+      "target": "app/main.py",
+      "sha256": "def5294e6683d829625ba8fce502826c9c4c2c6ed84d419ff2cd73caf3baa391",
+      "sourceSha256": "def5294e6683d829625ba8fce502826c9c4c2c6ed84d419ff2cd73caf3baa391"
+    },
+    {
+      "source": "old/app/model_settings.py",
+      "target": "app/model_settings.py",
+      "sha256": "a2f689bd2e231dc6595ba8c9d681a56fd8346804e8149a18d99dc6d02c05f5fb",
+      "sourceSha256": "a2f689bd2e231dc6595ba8c9d681a56fd8346804e8149a18d99dc6d02c05f5fb"
+    },
+    {
+      "source": "old/app/public_sources.py",
+      "target": "app/public_sources.py",
+      "sha256": "63a910d8d704236a5e34c5d73769b1745eb3f771a55b4af6466069147271ee97",
+      "sourceSha256": "63a910d8d704236a5e34c5d73769b1745eb3f771a55b4af6466069147271ee97"
+    },
+    {
+      "source": "old/app/reaction.py",
+      "target": "app/reaction.py",
+      "sha256": "190ec12d4a131dc6f822de3955d5de6d1902ea338929f378de633f8adb4735e6",
+      "sourceSha256": "190ec12d4a131dc6f822de3955d5de6d1902ea338929f378de633f8adb4735e6"
+    },
+    {
+      "source": "old/app/recycle_process.py",
+      "target": "app/recycle_process.py",
+      "sha256": "4411972e49ea69dafefa72a68ed82c4b0c8e787bb05d26458bac430d09f2e9ac",
+      "sourceSha256": "4411972e49ea69dafefa72a68ed82c4b0c8e787bb05d26458bac430d09f2e9ac"
+    },
+    {
+      "source": "old/app/research.py",
+      "target": "app/research.py",
+      "sha256": "77a4c2b282907575e800ccd35e5112dbddb1d5ef9524d27e7141ba957003a295",
+      "sourceSha256": "77a4c2b282907575e800ccd35e5112dbddb1d5ef9524d27e7141ba957003a295"
+    },
+    {
+      "source": "old/app/run_recovery.py",
+      "target": "app/run_recovery.py",
+      "sha256": "eee180246a99a7837b64979e6a51c6692ac38b7e2513757d1b65f442c615b1ae",
+      "sourceSha256": "eee180246a99a7837b64979e6a51c6692ac38b7e2513757d1b65f442c615b1ae"
+    },
+    {
+      "source": "old/app/schemas.py",
+      "target": "app/schemas.py",
+      "sha256": "29a1d210186d9261b03f330afdacc0f1216c3d7542a03e832af134837548cf6f",
+      "sourceSha256": "29a1d210186d9261b03f330afdacc0f1216c3d7542a03e832af134837548cf6f"
+    },
+    {
+      "source": "old/app/separation_train.py",
+      "target": "app/separation_train.py",
+      "sha256": "b4114add0c8835f5c4c8d212f961fa3bae3e37f6198d9222aa2405ff21505154",
+      "sourceSha256": "b4114add0c8835f5c4c8d212f961fa3bae3e37f6198d9222aa2405ff21505154"
+    },
+    {
+      "source": "old/app/simulation_files.py",
+      "target": "app/simulation_files.py",
+      "sha256": "9b15b68620315ecdb2d555b8c8155c97ea16e8a6728f1646602b54439d7f8bed",
+      "sourceSha256": "9b15b68620315ecdb2d555b8c8155c97ea16e8a6728f1646602b54439d7f8bed"
+    },
+    {
+      "source": "old/app/tabular.py",
+      "target": "app/tabular.py",
+      "sha256": "63075bebf16a801a8b832c50729389bde5f1f6c09ca9023be28fb3d8edfe9964",
+      "sourceSha256": "63075bebf16a801a8b832c50729389bde5f1f6c09ca9023be28fb3d8edfe9964"
+    },
+    {
+      "source": "old/app/toolbox.py",
+      "target": "app/toolbox.py",
+      "sha256": "20f6c269a2d5c21dee021460e6efecc22819d5b85f65dcd181bcd4924f134539",
+      "sourceSha256": "20f6c269a2d5c21dee021460e6efecc22819d5b85f65dcd181bcd4924f134539"
+    },
+    {
+      "source": "old/app/vision.py",
+      "target": "app/vision.py",
+      "sha256": "dc7b6e778c00e6a6474c721c9ceb91053e7d719b95faceb57cfedd135cd4ca6b",
+      "sourceSha256": "dc7b6e778c00e6a6474c721c9ceb91053e7d719b95faceb57cfedd135cd4ca6b"
+    },
+    {
+      "source": "old/app/wet_column.py",
+      "target": "app/wet_column.py",
+      "sha256": "29c81972476558351739a0151c9bd8be01a2ae999afa36104c1bf6504171de04",
+      "sourceSha256": "29c81972476558351739a0151c9bd8be01a2ae999afa36104c1bf6504171de04"
+    },
+    {
+      "source": "old/app/workflow.py",
+      "target": "app/workflow.py",
+      "sha256": "42ddb7e3db2f5c84a0b486b22bc6582ad5092f86064f543c7e2fb982263b01a7",
+      "sourceSha256": "42ddb7e3db2f5c84a0b486b22bc6582ad5092f86064f543c7e2fb982263b01a7"
+    },
+    {
+      "source": "scripts/test_kernel.py",
+      "target": "scripts/test_kernel.py",
+      "sha256": "13be2257ffea646561f96b12a74b50c87f30a4bb8e9b2d3784ee5e78c08dfa0f",
+      "sourceSha256": "13be2257ffea646561f96b12a74b50c87f30a4bb8e9b2d3784ee5e78c08dfa0f"
+    },
+    {
+      "source": "scripts/verify_bundle.py",
+      "target": "scripts/verify_bundle.py",
+      "sha256": "968368c35a066a4c0db9c7d39d4ac22d01853cd74b7340c44535f61e3461fb95",
+      "sourceSha256": "968368c35a066a4c0db9c7d39d4ac22d01853cd74b7340c44535f61e3461fb95"
+    },
+    {
+      "source": "scripts/build-dwsim-runner.ps1",
+      "target": "scripts/build-dwsim-runner.ps1",
+      "sha256": "993043aedc84e3505393fa5c8031f65ec1b1f1334cb895590e08f4b295fab930",
+      "sourceSha256": "993043aedc84e3505393fa5c8031f65ec1b1f1334cb895590e08f4b295fab930"
+    },
+    {
+      "source": "scripts/smoke_dwsim.py",
+      "target": "scripts/smoke_dwsim.py",
+      "sha256": "f56e39275c83ddeff948166b5df18f5abbfd8ea96da4860b099ab71ff6d19ded",
+      "sourceSha256": "f56e39275c83ddeff948166b5df18f5abbfd8ea96da4860b099ab71ff6d19ded"
+    },
+    {
+      "source": ".gitattributes",
+      "target": ".gitattributes",
+      "sha256": "8cc3a5c589c755063920505379e695b5096311d8b42f9712a979423fbbe4e666",
+      "sourceSha256": "7559b6c52cb19be186a7f2060b2a00622f2ed680c604e9fbae0f1d3078aacb72"
+    }
+  ],
+  "normalizations": [
+    "Trailing whitespace and final blank lines normalized in DwsimRunner.cs and DwsimRunner.exe.config. sourceSha256 records the original bytes; sha256 records this repository baseline.",
+    "Added explicit Git LF normalization and CRLF checkout for Windows .cmd launchers in .gitattributes."
+  ]
+}
