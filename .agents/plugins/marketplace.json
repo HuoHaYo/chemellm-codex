@@ -2,6 +2,11 @@
   "name": "chemellm-local",
   "interface": {"displayName": "ChemELLM Local"},
   "plugins": [
-    {"name": "chemellm", "source": "./codex-plugin", "policy": {"installation": "AVAILABLE"}}
+    {
+      "name": "chemellm",
+      "source": {"source": "local", "path": "./codex-plugin"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+      "category": "Productivity"
+    }
   ]
 }

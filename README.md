@@ -2,7 +2,15 @@
 
 面向 Codex 的本地化工工程插件：技能负责工程流程，stdio MCP 连接本仓库的计算、证据、文档、工程对象、自动校核和成果打包能力。MCP 在进程内复用 HTTP 内核，不需要预先启动服务，也不占用 TCP 端口。
 
-当前版本 `0.2.0`。已验证 Codex CLI `0.164.0` 的插件发现和隔离配置下的实际安装，并通过真实 stdio MCP 完成工程流程回归。安装后需在新 Codex 会话中加载；隔离验证不等同于已在用户日常配置中安装或启用插件。
+当前版本 `0.3.0`，提供 Windows x64 一键联网安装包。安装后需在新 Codex 会话中加载；发布测试使用隔离配置，不修改开发者日常插件设置。
+
+## 用户安装
+
+从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.3.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
+
+先安装并登录支持插件的 Codex 桌面版或 CLI。看到 `Installed successfully` 后重启 Codex、开启新会话，即可提出化工任务。双击 **`CHECK.cmd`** 可再次检查运行环境。项目数据保存到解压目录 `data/`，快照在 `.chem/`；安装完成后保留整个目录。
+
+详细步骤、升级和卸载见 [安装使用说明](安装使用说明.md)。发行包提供 SHA256 校验文件；不包含运行数据、个人材料、令牌、预装虚拟环境或专业外部软件。
 
 ## 安装本地开发版
 
@@ -54,6 +62,8 @@ git diff --check
 
 两套回归都使用独立临时数据，不需要正在运行的服务。MCP 测试从无关工作目录启动真实子进程，检查带中文/空格的存储路径、继承配置隔离、阶段约束、错误返回、完整工程流程、资源读取和成果哈希。
 
+维护发行包时，将源文件纳入 Git 后运行 `python -X utf8 scripts/build_release.py`，产物在被 Git 忽略的 `dist/`；`python -X utf8 scripts/test_release.py` 验证逐文件哈希、排除项和构建可复现性。Windows 安装器和版本锁定的维护说明见 [docs/releasing.md](docs/releasing.md)。
+
 需要单独的 HTTP 内核时运行 `scripts/start-kernel.cmd` 或 `scripts/start-kernel.ps1`，默认 `http://127.0.0.1:8766`；设置 `CHEMELLM_KERNEL_TOKEN` 时，请求需带 `x-kernel-token`。成果包可用 `scripts/verify_bundle.py <zip路径>` 校验。
 
 ```text
@@ -63,6 +73,7 @@ chemellm_codex/             MCP 适配与独立数据环境
 codex-plugin/              插件清单、技能和本机 MCP 配置
 .agents/plugins/          本地 marketplace 清单
 scripts/                   配置生成、启动、回归与成果包验证
+release/                   运行环境引导配置、依赖版本与哈希锁
 docs/                      源码来源和接入格式验证记录
 ```
 
@@ -70,4 +81,4 @@ docs/                      源码来源和接入格式验证记录
 
 ## Git 版本管理
 
-本仓库拥有独立 `.git`，初始提交 `e9e0e54` 保存迁移前内核基线；Codex 接入在 `codex/plugin-migration` 分支开发。使用 `git log --oneline --decorate`、`git diff main...HEAD` 查看演进，回归通过后提交并以版本标签标记。未配置远程仓库，后续添加远程地址再推送。
+本仓库拥有独立 `.git`，初始提交 `e9e0e54` 保存迁移前内核基线，`v0.2.0` 保存初版 Codex 接入。远程仓库为 [HuoHaYo/chemellm-codex](https://github.com/HuoHaYo/chemellm-codex)，稳定源码在 `main`，发行版本使用标签记录。使用 `git log --oneline --decorate` 查看演进。

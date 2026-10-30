@@ -2,6 +2,8 @@
 
 本目录包含 `.codex-plugin/plugin.json`、`chemellm-engineering` 技能，以及安装前由 `scripts/configure-codex.py` 生成的 `.mcp.json`。仓库根目录 `.agents/plugins/marketplace.json` 将插件登记为 `chemellm@chemellm-local`。
 
+普通 Windows 用户优先下载仓库 Releases 的安装 ZIP，完整解压后双击 `INSTALL.cmd`。安装器自动执行 Python 环境准备、配置生成、MCP 检查和以下登记步骤，无需自行安装 Git 或 Python。详细说明见仓库根目录 `安装使用说明.md`。
+
 先按仓库 README 安装 Python 包并生成配置，再执行：
 
 ```powershell
