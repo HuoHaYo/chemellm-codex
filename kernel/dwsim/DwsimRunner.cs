@@ -1,4 +1,5 @@
-﻿using System;
+// External-process DWSIM Automation3 adapter. No DWSIM assemblies are redistributed.
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -6,256 +7,324 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using System.Web.Script.Serialization;
 
 class DwsimRunner
 {
-    static string DwsimDir;
+    static string Home;
+    static JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024 };
+    static string[] Creatable = { "MaterialStream", "EnergyStream", "Mixer", "Splitter", "Heater", "Cooler",
+        "Pump", "Compressor", "Expander", "Valve", "Vessel", "Tank", "HeatExchanger", "ShortcutColumn",
+        "DistillationColumn", "AbsorptionColumn", "ReboiledAbsorber", "RefluxedAbsorber", "ComponentSeparator", "OT_Recycle" };
 
-    static Assembly ResolveAssembly(object sender, ResolveEventArgs args)
+    static Assembly Resolve(object sender, ResolveEventArgs args)
     {
-        string simple = new AssemblyName(args.Name).Name + ".dll";
-        string[] dirs = new string[] {
-            DwsimDir,
-            Path.Combine(DwsimDir, "ThermoCS"),
-            Path.Combine(DwsimDir, "Lib"),
-            Path.Combine(DwsimDir, "runtimes"),
-            Path.Combine(DwsimDir, "extenders")
-        };
-        foreach (string dir in dirs)
+        foreach (string dir in new string[] { Home, Path.Combine(Home, "ThermoCS"), Path.Combine(Home, "Lib"), Path.Combine(Home, "extenders") })
         {
-            string path = Path.Combine(dir, simple);
+            string path = Path.Combine(dir, new AssemblyName(args.Name).Name + ".dll");
             if (File.Exists(path)) return Assembly.LoadFrom(path);
         }
         return null;
     }
 
-    static object GetProperty(object obj, string name)
+    static Dictionary<string, object> Dict(params object[] pairs)
     {
-        PropertyInfo p = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+        var result = new Dictionary<string, object>();
+        for (int i = 0; i < pairs.Length; i += 2) result[(string)pairs[i]] = pairs[i + 1];
+        return result;
+    }
+    static Dictionary<string, object> Map(object value) { return (Dictionary<string, object>)value; }
+    static object Value(Dictionary<string, object> value, string key, object fallback)
+    { object result; return value.TryGetValue(key, out result) ? result : fallback; }
+    static string Text(object value) { return Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""; }
+    static PropertyInfo Property(object obj, string name)
+    {
+        for (Type type = obj.GetType(); type != null; type = type.BaseType)
+        {
+            var p = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+            if (p != null) return p;
+        }
+        return null;
+    }
+    static object Get(object obj, string name)
+    {
+        if (obj == null) return null;
+        var p = Property(obj, name);
         return p == null ? null : p.GetValue(obj, null);
     }
-
-    static string Str(object value)
+    static object ConvertArg(object value, Type type)
     {
-        return value == null ? "" : Convert.ToString(value, CultureInfo.InvariantCulture);
+        if (value == null) return null;
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        if (type.IsInstanceOfType(value)) return value;
+        if (type.IsEnum) return Enum.Parse(type, Text(value), false);
+        if (type == typeof(int) && Convert.ToDouble(value) != Math.Truncate(Convert.ToDouble(value)))
+            throw new ArgumentException("Integer parameter cannot be fractional");
+        return Convert.ChangeType(value, type, CultureInfo.InvariantCulture);
     }
-
-    static double Num(object value)
+    static object Call(object obj, string name, params object[] args)
     {
-        if (value == null) return 0.0;
-        return Convert.ToDouble(value, CultureInfo.InvariantCulture);
-    }
-
-    static object Call(object obj, string name)
-    {
-        MethodInfo m = obj.GetType().GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-        if (m == null) return null;
-        return m.Invoke(obj, null);
-    }
-
-    static string Q(string value)
-    {
-        if (value == null) value = "";
-        StringBuilder builder = new StringBuilder("\"");
-        foreach (char ch in value)
+        MethodInfo selected = null; object[] selectedArgs = null; int best = Int32.MaxValue;
+        foreach (var method in obj.GetType().GetMethods())
         {
-            switch (ch)
+            if (method.Name != name || method.GetParameters().Length != args.Length) continue;
+            var converted = new object[args.Length];
+            bool compatible = true; int score = 0;
+            for (int i = 0; i < args.Length; i++)
+                try {
+                    Type type = method.GetParameters()[i].ParameterType;
+                    converted[i] = ConvertArg(args[i], type);
+                    if (args[i] != null && !type.IsInstanceOfType(args[i])) score++;
+                }
+                catch { compatible = false; break; }
+            if (compatible && score < best) { selected = method; selectedArgs = converted; best = score; }
+        }
+        if (selected != null) return selected.Invoke(obj, selectedArgs);
+        throw new MissingMethodException(obj.GetType().FullName, name);
+    }
+    static object Optional(object obj, string name)
+    { try { return Call(obj, name); } catch { return null; } }
+    static string Tag(object obj) { return Text(Get(Get(obj, "GraphicObject"), "Tag")); }
+    static IDictionary Objects(object sim) { return (IDictionary)Get(sim, "SimulationObjects"); }
+    static object Find(object sim, string tag)
+    {
+        object found = null;
+        foreach (DictionaryEntry entry in Objects(sim))
+            if (Tag(entry.Value) == tag || Text(Get(entry.Value, "Name")) == tag)
             {
-                case '\\': builder.Append("\\\\"); break;
-                case '"': builder.Append("\\\""); break;
-                case '\n': builder.Append("\\n"); break;
-                case '\r': builder.Append("\\r"); break;
-                case '\t': builder.Append("\\t"); break;
-                default: builder.Append(ch); break;
+                if (found != null && found != entry.Value) throw new ArgumentException("Ambiguous object tag: " + tag);
+                found = entry.Value;
             }
-        }
-        builder.Append("\"");
-        return builder.ToString();
+        if (found == null) throw new ArgumentException("Object not found: " + tag);
+        return found;
     }
 
-    static string N(double value)
+    static List<object> Parameters(object obj)
     {
-        if (double.IsNaN(value) || double.IsInfinity(value)) return "null";
-        return value.ToString("0.##########", CultureInfo.InvariantCulture);
-    }
-
-    static string A(double[] values)
-    {
-        if (values == null) return "[]";
-        StringBuilder builder = new StringBuilder("[");
-        for (int i = 0; i < values.Length; i++)
+        var result = new List<object>();
+        foreach (var p in obj.GetType().GetProperties())
         {
-            if (i > 0) builder.Append(", ");
-            builder.Append(N(values[i]));
+            Type t = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
+            string space = p.DeclaringType.Namespace ?? "";
+            if (!p.CanRead || !p.CanWrite || p.GetIndexParameters().Length != 0 ||
+                !(space.StartsWith("DWSIM.UnitOperations.UnitOperations") || space.StartsWith("DWSIM.UnitOperations.Streams")) ||
+                !(t.IsEnum || t == typeof(double) || t == typeof(int) || t == typeof(bool))) continue;
+            try { result.Add(Dict("name", p.Name, "value", t.IsEnum ? Text(p.GetValue(obj, null)) : p.GetValue(obj, null),
+                "type", t.Name, "choices", t.IsEnum ? Enum.GetNames(t) : new string[0])); }
+            catch { }
         }
-        builder.Append("]");
-        return builder.ToString();
+        return result;
+    }
+    static HashSet<string> PropertyIds(object obj, string kind)
+    {
+        var names = new HashSet<string>();
+        foreach (var id in (IEnumerable)Call(obj, "GetProperties", kind)) names.Add(Text(id));
+        return names;
+    }
+    static List<object> Properties(object sim, object obj)
+    {
+        var result = new List<object>();
+        var writable = PropertyIds(obj, "RW");
+        writable.UnionWith(PropertyIds(obj, "WR"));
+        foreach (string id in PropertyIds(obj, "ALL"))
+        {
+            try {
+                string description = Text(Call(obj, "GetPropertyDescription", id));
+                if (description == id) description = Text(Call(sim, "GetTranslatedString", id));
+                result.Add(Dict("id", id, "value", Call(obj, "GetPropertyValue", id, null),
+                "unit", Call(obj, "GetPropertyUnit", id, null),
+                "description", description, "writable", writable.Contains(id))); }
+            catch (Exception ex) { result.Add(Dict("id", id, "error", ex.GetBaseException().Message)); }
+        }
+        return result;
+    }
+    static List<object> Ports(object obj, string name)
+    {
+        var result = new List<object>();
+        var ports = Get(Get(obj, "GraphicObject"), name) as IEnumerable;
+        if (ports != null) foreach (var port in ports)
+            result.Add(Dict("index", result.Count, "name", Text(Get(port, "ConnectorName")),
+                "attached", Get(port, "IsAttached"), "type", Text(Get(port, "Type"))));
+        return result;
+    }
+    static void Apply(object sim, object obj, Dictionary<string, object> spec)
+    {
+        foreach (string key in new string[] { "temperature_k", "pressure_pa", "mass_flow_kg_s" })
+            if (Value(spec, key, null) != null)
+                Call(obj, key == "temperature_k" ? "SetTemperature" : key == "pressure_pa" ? "SetPressure" : "SetMassFlow",
+                    Convert.ToDouble(spec[key], CultureInfo.InvariantCulture));
+        if (Value(spec, "mole_fractions", null) != null)
+        {
+            var fractions = Map(spec["mole_fractions"]);
+            var names = (string[])Call(obj, "GetCompoundNames");
+            if (fractions.Count != names.Length) throw new ArgumentException("List all selected compounds for " + Tag(obj));
+            var composition = new double[names.Length];
+            for (int i = 0; i < names.Length; i++) composition[i] = Convert.ToDouble(fractions[names[i]], CultureInfo.InvariantCulture);
+            Call(obj, "SetOverallComposition", (object)composition);
+        }
+        var allowed = new HashSet<string>();
+        foreach (object p in Parameters(obj)) allowed.Add(Text(Map(p)["name"]));
+        foreach (var pair in Map(Value(spec, "parameters", Dict())))
+        {
+            if (!allowed.Contains(pair.Key)) throw new ArgumentException("Inspect before setting model parameter: " + pair.Key);
+            var p = Property(obj, pair.Key);
+            p.SetValue(obj, ConvertArg(pair.Value, p.PropertyType), null);
+        }
+        var writable = PropertyIds(obj, "RW");
+        writable.UnionWith(PropertyIds(obj, "WR"));
+        foreach (var pair in Map(Value(spec, "properties", Dict())))
+        {
+            if (!writable.Contains(pair.Key)) throw new ArgumentException("Unknown/read-only DWSIM property: " + pair.Key);
+            if (!Convert.ToBoolean(Call(obj, "SetPropertyValue", pair.Key, pair.Value, null)))
+                throw new ArgumentException("DWSIM rejected property " + pair.Key);
+        }
+    }
+    static object AddObject(object sim, string type, int x, int y, string tag)
+    {
+        if (Array.IndexOf(Creatable, type) < 0) throw new ArgumentException("Unsupported creation ObjectType: " + type);
+        return Call(sim, "AddObject", type, x, y, tag);
+    }
+    static void Build(object sim, Dictionary<string, object> model)
+    {
+        foreach (object compound in (IEnumerable)model["compounds"]) Call(sim, "AddCompound", Text(compound));
+        object pp = Call(sim, "CreateAndAddPropertyPackage", Text(model["property_package"]));
+        if (pp == null) throw new ArgumentException("Property package not available");
+        foreach (object value in (IEnumerable)model["objects"])
+        {
+            var spec = Map(value);
+            object obj = AddObject(sim, Text(spec["type"]), Convert.ToInt32(spec["x"]), Convert.ToInt32(spec["y"]), Text(spec["tag"]));
+            var package = Property(obj, "PropertyPackage");
+            if (package != null && package.CanWrite) package.SetValue(obj, pp, null);
+            Apply(sim, obj, spec);
+        }
+        foreach (object value in (IEnumerable)model["connections"])
+        {
+            var connection = Map(value);
+            Call(sim, "ConnectObjects", Get(Find(sim, Text(connection["source"])), "GraphicObject"),
+                Get(Find(sim, Text(connection["target"])), "GraphicObject"), connection["source_port"], connection["target_port"]);
+        }
+    }
+    static Dictionary<string, object> Read(object sim, bool inspect, HashSet<string> selected)
+    {
+        var streams = new List<object>(); var units = new List<object>(); var energy = new List<object>();
+        var objects = new List<object>(); var errors = new List<string>(); var packages = new List<object>();
+        foreach (DictionaryEntry entry in Objects(sim))
+        {
+            object obj = entry.Value; string type = obj.GetType().Name;
+            if (inspect && selected.Count > 0 && !selected.Contains(Tag(obj)) && !selected.Contains(Text(Get(obj, "Name")))) continue;
+            var item = Dict("tag", Tag(obj), "name", Text(Get(obj, "Name")), "type", type,
+                "calculated", Get(Get(obj, "GraphicObject"), "Calculated"));
+            if (type == "MaterialStream")
+            {
+                item["temperature_k"] = Optional(obj, "GetTemperature"); item["pressure_pa"] = Optional(obj, "GetPressure");
+                item["mass_flow_kg_s"] = Optional(obj, "GetMassFlow"); item["compounds"] = Optional(obj, "GetCompoundNames");
+                item["mole_fractions"] = Optional(obj, "GetOverallComposition");
+                if (!inspect)
+                {
+                    bool valid = true;
+                    foreach (string key in new string[] { "temperature_k", "pressure_pa", "mass_flow_kg_s" })
+                    {
+                        double number = item[key] == null ? Double.NaN : Convert.ToDouble(item[key]);
+                        if (Double.IsNaN(number) || Double.IsInfinity(number) || (key == "mass_flow_kg_s" ? number < 0 : number <= 0)) valid = false;
+                    }
+                    var fractions = item["mole_fractions"] as double[];
+                    var names = item["compounds"] as string[];
+                    double sum = 0;
+                    if (fractions == null || names == null || fractions.Length != names.Length || fractions.Length == 0) valid = false;
+                    else foreach (double fraction in fractions)
+                    {
+                        if (Double.IsNaN(fraction) || Double.IsInfinity(fraction) || fraction < -1e-10 || fraction > 1+1e-10) valid = false;
+                        sum += fraction;
+                    }
+                    if (Math.Abs(sum-1) > 1e-6) valid = false;
+                    if (!valid) errors.Add("Incomplete or invalid material stream result: " + Tag(obj));
+                }
+                streams.Add(item);
+            }
+            else if (type == "EnergyStream") { item["energy_flow_kw"] = Get(obj, "EnergyFlow"); energy.Add(item); }
+            else { if (!inspect) item["properties"] = Properties(sim, obj); units.Add(item); }
+            if (inspect)
+            {
+                if (selected.Count > 0) item["properties"] = Properties(sim, obj);
+                item["parameters"] = Parameters(obj);
+                item["input_ports"] = Ports(obj, "InputConnectors"); item["output_ports"] = Ports(obj, "OutputConnectors");
+                var ec = Get(Get(obj, "GraphicObject"), "EnergyConnector");
+                item["energy_connector"] = ec == null ? null : Dict("attached", Get(ec, "IsAttached"), "type", Text(Get(ec, "Type")));
+            }
+            objects.Add(item);
+        }
+        foreach (DictionaryEntry entry in (IDictionary)Get(sim, "PropertyPackages"))
+            packages.Add(Dict("id", Text(entry.Key), "name", Text(Get(entry.Value, "ComponentName")), "type", entry.Value.GetType().Name));
+        return Dict("solved", Convert.ToBoolean(Get(sim, "Solved")), "error", Text(Get(sim, "ErrorMessage")),
+            "stream_count", streams.Count, "unit_count", units.Count, "streams", streams, "unit_operations", units,
+            "energy_streams", inspect ? null : energy, "objects", inspect ? objects : null, "property_packages", packages, "result_errors", errors,
+            "total_objects", Objects(sim).Count);
+    }
+    static object Sanitize(object value)
+    {
+        if (value == null || value is string || value is bool) return value;
+        if (value is double && (Double.IsNaN((double)value) || Double.IsInfinity((double)value))) return null;
+        if (value is IDictionary) { var d = Dict(); foreach (DictionaryEntry p in (IDictionary)value) d[Text(p.Key)] = Sanitize(p.Value); return d; }
+        if (value is IEnumerable) { var list = new List<object>(); foreach (object v in (IEnumerable)value) list.Add(Sanitize(v)); return list; }
+        if (value.GetType().IsEnum) return value.ToString();
+        return value;
     }
 
-    static string S(string[] values)
+    [STAThread]
+    static int Main(string[] args)
     {
-        if (values == null) return "[]";
-        StringBuilder builder = new StringBuilder("[");
-        for (int i = 0; i < values.Length; i++)
-        {
-            if (i > 0) builder.Append(", ");
-            builder.Append(Q(values[i]));
-        }
-        builder.Append("]");
-        return builder.ToString();
-    }
-
-    static void Main(string[] args)
-    {
-        if (args.Length < 3)
-        {
-            Console.Error.WriteLine("usage: DwsimRunner <run|inspect> <flowsheet> <output.json> [--temp <dir>] [--dwsim <dir>]");
-            Environment.Exit(2);
-        }
+        // DWSIM and plugin diagnostics must never leak into the parent MCP protocol.
+        Console.SetOut(Console.Error);
+        if (args.Length != 3) { Console.Error.WriteLine("usage: DwsimRunner request.json result.json DWSIM_HOME"); return 2; }
+        string output = Path.GetFullPath(args[1]);
         try
         {
-            string command = args[0].ToLowerInvariant();
-            string flowsheet = Path.GetFullPath(args[1]);
-            string output = Path.GetFullPath(args[2]);
-            string temp = null;
-            string dwsim = null;
-            for (int i = 3; i < args.Length; i++)
+            Home = Path.GetFullPath(args[2]); Directory.SetCurrentDirectory(Home);
+            AppDomain.CurrentDomain.AssemblyResolve += Resolve;
+            var request = Map(Json.DeserializeObject(File.ReadAllText(Path.GetFullPath(args[0]), Encoding.UTF8)));
+            string action = Text(request["action"]);
+            object automation = Activator.CreateInstance(Assembly.LoadFrom(Path.Combine(Home, "DWSIM.Automation.dll")).GetType("DWSIM.Automation.Automation3"));
+            object sim = action == "create" || action == "catalog" ? Call(automation, "CreateFlowsheet") : Call(automation, "LoadFlowsheet", Text(request["flowsheet_path"]));
+            Dictionary<string, object> result;
+            if (action == "catalog")
             {
-                if (args[i] == "--temp" && i + 1 < args.Length) temp = args[++i];
-                else if (args[i] == "--dwsim" && i + 1 < args.Length) dwsim = args[++i];
-            }
-            if (!File.Exists(flowsheet)) throw new FileNotFoundException("flowsheet not found", flowsheet);
-            if (dwsim == null) dwsim = Environment.GetEnvironmentVariable("DWSIM_HOME");
-            if (String.IsNullOrEmpty(dwsim)) dwsim = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DWSIM");
-            DwsimDir = Path.GetFullPath(dwsim);
-            string automationDll = Path.Combine(DwsimDir, "DWSIM.Automation.dll");
-            if (!File.Exists(automationDll)) throw new FileNotFoundException("DWSIM.Automation.dll not found", automationDll);
-            if (temp == null) temp = Path.Combine(Path.GetTempPath(), "chemellm-dwsim");
-            temp = Path.GetFullPath(temp);
-            Directory.CreateDirectory(temp);
-            Environment.SetEnvironmentVariable("TEMP", temp);
-            Environment.SetEnvironmentVariable("TMP", temp);
-            Directory.SetCurrentDirectory(DwsimDir);
-            AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
-
-            Assembly asm = Assembly.LoadFrom(automationDll);
-            Type automationType = asm.GetType("DWSIM.Automation.Automation3");
-            if (automationType == null) throw new Exception("DWSIM.Automation.Automation3 not found; DWSIM version unsupported");
-            object automation = Activator.CreateInstance(automationType);
-            MethodInfo load = automationType.GetMethod("LoadFlowsheet", new Type[] { typeof(string) });
-            if (load == null) throw new Exception("LoadFlowsheet(string) not found");
-            object sim = load.Invoke(automation, new object[] { flowsheet });
-
-            string version = "";
-            try
-            {
-                FileVersionInfo info = FileVersionInfo.GetVersionInfo(Path.Combine(DwsimDir, "DWSIM.exe"));
-                version = info.FileVersion;
-            }
-            catch { }
-            if (String.IsNullOrEmpty(version))
-            {
-                try { version = Str(automationType.GetMethod("GetVersion").Invoke(automation, null)); }
-                catch { }
-            }
-
-            StringBuilder json = new StringBuilder();
-            json.Append("{\n");
-            json.Append("  \"engine\": \"DWSIM\",\n");
-            json.Append("  \"version\": ").Append(Q(version)).Append(",\n");
-            json.Append("  \"flowsheet\": ").Append(Q(flowsheet)).Append(",\n");
-            json.Append("  \"command\": ").Append(Q(command)).Append(",\n");
-
-            if (command == "inspect")
-            {
-                object objects0 = GetProperty(sim, "SimulationObjects");
-                IDictionary dict0 = objects0 as IDictionary;
-                json.Append("  \"object_count\": ").Append(dict0 == null ? 0 : dict0.Count).Append(",\n");
-                json.Append("  \"solved\": ").Append(Convert.ToBoolean(GetProperty(sim, "Solved")) ? "true" : "false").Append(",\n");
-                json.Append("  \"error\": ").Append(Q(Str(GetProperty(sim, "ErrorMessage")))).Append(",\n");
-                json.Append("  \"objects\": [\n");
-                bool first0 = true;
-                if (dict0 != null)
-                {
-                    foreach (DictionaryEntry entry in dict0)
-                    {
-                        object item = entry.Value;
-                        if (!first0) json.Append(",\n");
-                        first0 = false;
-                        json.Append("    {\"name\": ").Append(Q(Str(GetProperty(item, "Name")))).Append(", \"type\": ").Append(Q(item.GetType().Name)).Append("}");
-                    }
-                }
-                json.Append("\n  ]\n}\n");
+                var compounds = new List<object>(); var available = (IDictionary)Get(sim, "AvailableCompounds");
+                foreach (DictionaryEntry c in available) compounds.Add(Dict("name", Text(c.Key), "cas", Text(Get(c.Value, "CAS_Number")), "formula", Text(Get(c.Value, "Formula"))));
+                result = Dict("compounds", compounds, "property_packages", Call(sim, "GetAvailablePropertyPackages"), "object_types", Creatable);
             }
             else
             {
-                MethodInfo calculate = null;
-                foreach (MethodInfo m in automationType.GetMethods())
-                    if (m.Name == "CalculateFlowsheet" && m.GetParameters().Length == 2) calculate = m;
-                if (calculate == null) throw new Exception("CalculateFlowsheet(IFlowsheet, ISimulationObject) not found");
-                calculate.Invoke(automation, new object[] { sim, null });
-                bool solved = Convert.ToBoolean(GetProperty(sim, "Solved"));
-                string error = Str(GetProperty(sim, "ErrorMessage"));
-
-                object objectsValue = GetProperty(sim, "SimulationObjects");
-                IDictionary objects = objectsValue as IDictionary;
-                List<string> streams = new List<string>();
-                List<string> units = new List<string>();
-                if (objects != null)
+                if (action == "create") Build(sim, Map(request["model"]));
+                foreach (object spec in (IEnumerable)Value(request, "updates", new object[0])) Apply(sim, Find(sim, Text(Map(spec)["tag"])), Map(spec));
+                var solverErrors = new List<string>();
+                if (action != "inspect")
                 {
-                    foreach (DictionaryEntry entry in objects)
-                    {
-                        object obj = entry.Value;
-                        string typeName = obj.GetType().Name;
-                        string name = Str(GetProperty(obj, "Name")); object graphic = GetProperty(obj, "GraphicObject"); string tag = Str(GetProperty(graphic, "Tag")); string description = Str(GetProperty(graphic, "Description"));
-                        if (typeName.IndexOf("MaterialStream", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            double temperature = 0, pressure = 0, massFlow = 0;
-                            string[] compounds = null;
-                            double[] composition = null;
-                            string streamError = "";
-                            try
-                            {
-                                temperature = Num(Call(obj, "GetTemperature"));
-                                pressure = Num(Call(obj, "GetPressure"));
-                                massFlow = Num(Call(obj, "GetMassFlow"));
-                                compounds = Call(obj, "GetCompoundNames") as string[];
-                                composition = Call(obj, "GetOverallComposition") as double[];
-                            }
-                            catch (Exception ex) { streamError = ex.Message; }
-                            streams.Add("    {\"tag\": " + Q(tag) + ", \"description\": " + Q(description) + ", \"name\": " + Q(name) + ", \"type\": " + Q(typeName)
-                                + ", \"temperature_k\": " + N(temperature)
-                                + ", \"pressure_pa\": " + N(pressure)
-                                + ", \"mass_flow_kg_s\": " + N(massFlow)
-                                + ", \"compounds\": " + S(compounds)
-                                + ", \"mole_fractions\": " + A(composition)
-                                + (streamError.Length > 0 ? ", \"error\": " + Q(streamError) : "")
-                                + "}");
-                        }
-                        else if (typeName.IndexOf("EnergyStream", StringComparison.OrdinalIgnoreCase) < 0)
-                        {
-                            units.Add("    {\"tag\": " + Q(tag) + ", \"description\": " + Q(description) + ", \"name\": " + Q(name) + ", \"type\": " + Q(typeName) + "}");
-                        }
-                    }
+                    try { Call(automation, "CalculateFlowsheet2", sim); }
+                    catch (TargetInvocationException ex) { solverErrors.Add(ex.GetBaseException().Message); }
                 }
-                json.Append("  \"solved\": ").Append(solved ? "true" : "false").Append(",\n");
-                json.Append("  \"error\": ").Append(Q(error)).Append(",\n");
-                json.Append("  \"stream_count\": ").Append(streams.Count).Append(",\n");
-                json.Append("  \"unit_count\": ").Append(units.Count).Append(",\n");
-                json.Append("  \"streams\": [\n").Append(String.Join(",\n", streams.ToArray())).Append("\n  ],\n");
-                json.Append("  \"unit_operations\": [\n").Append(String.Join(",\n", units.ToArray())).Append("\n  ]\n}\n");
+                var selected = new HashSet<string>();
+                foreach (object tag in (IEnumerable)Value(request, "object_tags", new object[0])) { Find(sim, Text(tag)); selected.Add(Text(tag)); }
+                result = Read(sim, action == "inspect", selected); result["solver_errors"] = solverErrors;
+                if (action == "inspect") { result["streams"] = null; result["unit_operations"] = null; }
+                if (solverErrors.Count > 0) result["solved"] = false;
+                if (action != "inspect")
+                {
+                    string save = Text(request["save_path"]);
+                    Call(automation, "SaveFlowsheet", sim, save, true); result["saved_flowsheet"] = save;
+                }
             }
-            File.WriteAllText(output, json.ToString(), new UTF8Encoding(false));
-            Console.WriteLine("OK " + output);
-            Environment.Exit(0);
+            result["engine"] = "DWSIM";
+            result["version"] = FileVersionInfo.GetVersionInfo(Path.Combine(Home, "DWSIM.exe")).FileVersion;
+            result["action"] = action;
+            result["units"] = Dict("temperature", "K", "pressure", "Pa", "mass_flow", "kg/s", "energy_flow", "kW", "composition", "mole fraction");
+            File.WriteAllText(output, Json.Serialize(Sanitize(result)), new UTF8Encoding(false));
+            return 0;
         }
         catch (Exception ex)
         {
-            string message = ex.ToString();
-            if (ex.InnerException != null) message += "\nINNER: " + ex.InnerException.ToString();
-            try { File.WriteAllText(args.Length > 2 ? Path.GetFullPath(args[2]) : "dwsim-error.txt", "{\"solved\": false, \"error\": " + Q(message) + "}", new UTF8Encoding(false)); } catch { }
-            Console.Error.WriteLine(message);
-            Environment.Exit(1);
+            string message = ex.GetBaseException().ToString(); Console.Error.WriteLine(message);
+            File.WriteAllText(output, Json.Serialize(Dict("solved", false, "error", message)), new UTF8Encoding(false));
+            return 1;
         }
     }
 }

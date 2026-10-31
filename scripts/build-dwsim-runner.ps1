@@ -10,13 +10,14 @@ $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 if (-not (Test-Path $src)) { throw "missing $src" }
 if (-not (Test-Path $csc)) { throw "csc.exe not found: $csc" }
-& $csc /nologo /out:$exe $src
+& $csc /nologo /platform:x64 /reference:System.Web.Extensions.dll /out:$exe $src
 if ($LASTEXITCODE -ne 0) { throw "csc failed: $LASTEXITCODE" }
 
 $dwsim = if ($env:DWSIM_HOME) { $env:DWSIM_HOME } else { Join-Path $env:LOCALAPPDATA "DWSIM" }
 $config = Join-Path $dwsim "DWSIM.Automation.dll.config"
 if (Test-Path $config) {
-    Copy-Item $config (Join-Path $outDir "DwsimRunner.exe.config") -Force
+    $configText = ((Get-Content -LiteralPath $config) | ForEach-Object { $_.TrimEnd() }) -join "`n"
+    [System.IO.File]::WriteAllText((Join-Path $outDir "DwsimRunner.exe.config"), $configText.TrimEnd() + "`n", (New-Object System.Text.UTF8Encoding($false)))
 } else {
     Write-Warning "DWSIM.Automation.dll.config not found; runtime binding redirects may be missing"
 }

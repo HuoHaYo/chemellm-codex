@@ -2,11 +2,11 @@
 
 面向 Codex 的本地化工工程插件：技能负责工程流程，stdio MCP 连接本仓库的计算、证据、文档、工程对象、自动校核和成果打包能力。MCP 在进程内复用 HTTP 内核，不需要预先启动服务，也不占用 TCP 端口。
 
-当前版本 `0.3.0`，提供 Windows x64 一键联网安装包。安装后需在新 Codex 会话中加载；发布测试使用隔离配置，不修改开发者日常插件设置。
+当前版本 `0.4.0`，提供 Windows x64 一键联网安装包。安装后需在新 Codex 会话中加载；发布测试使用隔离配置，不修改开发者日常插件设置。
 
 ## 用户安装
 
-从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.3.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
+从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.4.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
 
 先安装并登录支持插件的 Codex 桌面版或 CLI。看到 `Installed successfully` 后重启 Codex、开启新会话，即可提出化工任务。双击 **`CHECK.cmd`** 可再次检查运行环境。项目数据保存到解压目录 `data/`，快照在 `.chem/`；安装完成后保留整个目录。
 
@@ -34,6 +34,8 @@ codex plugin add chemellm@chemellm-local
 | 用途 | 工具 |
 | --- | --- |
 | 健康、参数目录 | `chem_health`、`chem_tools` |
+| 可选工具检测、安装方案、授权安装、进度 | `chem_dependencies`、`chem_dependency_prepare`、`chem_dependency_install`、`chem_dependency_install_status` |
+| DWSIM 环境与稳态流程仿真 | `chem_dwsim_status`、`chem_dwsim` |
 | 项目 | `chem_projects`、`chem_create_project`、`chem_project` |
 | 要求、计划、工程依据 | `chem_requirements`、`chem_plan`、`chem_object` |
 | 当前价格、更新、变更历史 | `chem_prices`、`chem_price_save`、`chem_price_history` |
@@ -50,6 +52,10 @@ codex plugin add chemellm@chemellm-local
 
 标准、手册及参考资料可归档到 `data/references/` 跨项目复用，保留原件、来源、全文分块和有历史版本的整理稿。图片由工具直接返回给当前 Codex 会话识读，无需另配模型 API；长资料先建索引，再按任务补充精简。项目引用固定版本及独立副本，随成果包保存。用法见 [共享资料库说明](docs/references.md)。
 
+DWSIM 已通过本机 Automation3 接入。AI 可查询组分/物性包、创建或载入稳态流程、检查参数与单位、修改工况并求解，项目保存原始输入、完整结果、物流表和原生 `.dwxmz`，支持后续重算与成果打包。需要本机安装 Windows 版 DWSIM；动态及复杂反应模型需单独配置和验证。用法见 [DWSIM 接入说明](docs/dwsim.md)。
+
+对话中确实需要尚未安装的外部工具时，AI 会说明用途、安装理由、来源、目标位置和影响，询问是否安装；用户明确选择“是”后执行安装，检查可用性并继续原任务。当前内置 Windows 下 DWSIM、FreeCAD、LibreOffice 和 Cantera 的安装方案，其他工具由当前会话核对官方安装方式。检测和准备方案均不安装软件；拒绝或未回复时不安装。见 [按需安装说明](docs/dependencies.md)。
+
 ## 数据和工程边界
 
 - 默认使用本仓库的 `data/`、`data/kernel/` SQLite 与成果目录，以及 `.chem/` 快照。MCP 启动会覆盖继承的 DSH 数据路径、令牌和阶段配置。
@@ -63,6 +69,8 @@ codex plugin add chemellm@chemellm-local
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 scripts\test_kernel.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_codex_mcp.py
+.\.venv\Scripts\python.exe -X utf8 scripts\test_dependencies.py
+.\.venv\Scripts\python.exe -X utf8 scripts\test_dwsim.py
 git diff --check
 ```
 

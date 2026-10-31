@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "kernel"))
 
 import dwsim_bridge  # noqa: E402
@@ -18,7 +19,7 @@ import dwsim_bridge  # noqa: E402
 
 def main() -> int:
     status = dwsim_bridge.status()
-    print("DWSIM:", status)
+    print("DWSIM:", {key: status[key] for key in ('installed', 'ready', 'home', 'runner')})
     if not status["installed"]:
         print("SKIP: DWSIM not installed")
         return 0

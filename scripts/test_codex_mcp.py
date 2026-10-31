@@ -85,6 +85,47 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         return json.loads(response.content[0].text)
 
     @connected
+    async def test_optional_tools_prepare_and_refuse_without_human_consent(self):
+        tools = {tool.name: tool for tool in (await self.session.list_tools()).tools}
+        expected = {'chem_dependencies', 'chem_dependency_prepare',
+                    'chem_dependency_install', 'chem_dependency_install_status'}
+        self.assertTrue(expected <= tools.keys())
+        self.assertTrue(tools['chem_dependencies'].annotations.readOnlyHint)
+        self.assertTrue(tools['chem_dependency_install'].annotations.openWorldHint)
+        self.assertFalse(tools['chem_dependency_install'].inputSchema['properties']['confirmed']['default'])
+        inventory = await self.call('chem_dependencies')
+        self.assertEqual({item['dependency'] for item in inventory['dependencies']},
+                         {'dwsim', 'freecad', 'libreoffice', 'cantera'})
+        for item in inventory['dependencies']:
+            self.assertIsInstance(item['ready'], bool)
+            self.assertTrue(item['source'].startswith('https://'))
+        # Prefer a missing tool, but this protocol test also works on a fully provisioned host.
+        chosen = next((item for item in inventory['dependencies'] if not item['ready']), inventory['dependencies'][0])
+        reason = '协议测试：确认当前任务所需工具的安装方案与来源，不执行安装'
+        prepared = await self.call('chem_dependency_prepare', dependency=chosen['dependency'], reason=reason)
+        self.assertIn(prepared['status'], {'already_available', 'needs_repair', 'manual_required', 'awaiting_consent'})
+        plan_id = '0'*32
+        if prepared['status'] == 'awaiting_consent':
+            plan = prepared['plan']
+            plan_id = plan['plan_id']
+            self.assertEqual(plan['reason'], reason)
+            self.assertTrue(plan['commands'])
+            self.assertTrue(plan['effects'])
+            self.assertIn('是否安装', prepared['question'])
+            saved = self.storage/'dependencies'/'plans'/(plan_id+'.json')
+            self.assertEqual(json.loads(saved.read_text(encoding='utf-8')), plan)
+        # Never set confirmed=true against a real installer in protocol tests.
+        for consent in ({}, {'confirmed': False, 'user_response': '否'}):
+            refused = await self.session.call_tool('chem_dependency_install', {'plan_id': plan_id, **consent})
+            self.assertTrue(refused.isError)
+            self.assertIn('409', refused.content[0].text)
+        self.assertFalse((self.storage/'dependencies'/'jobs').exists())
+        self.assertFalse((self.storage/'dependencies'/'logs').exists())
+        status = await self.session.call_tool('chem_dependency_install_status', {'job_id': plan_id})
+        self.assertTrue(status.isError)
+        self.assertIn('422', status.content[0].text)
+
+    @connected
     async def test_full_workflow_resources_and_artifact_hashes(self):
         health = await self.call("chem_health")
         self.assertEqual(Path(health["dataDir"]), self.storage)
@@ -223,6 +264,47 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertTrue(rejected.isError)
         self.assertEqual((await self.call('chem_prices', project_id=project_id))['prices']['revision'], 3)
+
+    @connected
+    async def test_dwsim_actual_create_inspect_update_and_calculation(self):
+        status = (await self.call('chem_dwsim_status'))['status']
+        schema = (await self.call('chem_tools', tool='dwsim'))['schema']
+        self.assertIn('model', schema['properties'])
+        if not status['ready']:
+            self.skipTest('本机没有 DWSIM 运行环境')
+        project_id = (await self.call('chem_create_project', name='DWSIM 真实协议测试'))['project']['projectId']
+        await self.call('chem_requirements', project_id=project_id, items=[{'code': 'R1', 'title': 'DWSIM 集成仿真'}])
+        await self.call('chem_plan', project_id=project_id, deliverables=[{'key': 'sim', 'title': '仿真模型',
+            'requirementCodes': ['R1'], 'formats': ['dwxmz', 'csv']}])
+        await self.call('chem_object', project_id=project_id, kind='basis', key='feed', quantities=[{
+            'key': 'flow', 'value': 2, 'unit': 'kg/s', 'origin': 'assumption',
+            'conditions': 'Water, 300 K, 200000 Pa', 'rationale': '集成测试合成输入'}])
+        model = {'compounds': ['Water'], 'property_package': 'Steam Tables (IAPWS-IF97)', 'objects': [
+            {'tag': 'FEED', 'type': 'MaterialStream', 'temperature_k': 300, 'pressure_pa': 200000,
+             'mass_flow_kg_s': 2, 'mole_fractions': {'Water': 1}},
+            {'tag': 'HT-101', 'type': 'Heater', 'parameters': {'CalcMode': 'OutletTemperature', 'OutletTemperature': 350, 'DeltaP': 10000}},
+            {'tag': 'PRODUCT', 'type': 'MaterialStream'}, {'tag': 'Q-101', 'type': 'EnergyStream'}],
+            'connections': [{'source': 'FEED', 'target': 'HT-101'}, {'source': 'HT-101', 'target': 'PRODUCT'},
+                            {'source': 'Q-101', 'target': 'HT-101', 'target_port': 1}]}
+        simulated = await self.call('chem_dwsim', project_id=project_id, request={'action': 'create', 'model': model})
+        self.assertTrue(simulated['result']['solved'], simulated)
+        self.assertTrue(simulated['result']['validation']['passed'])
+        native = next(item for item in simulated['artifacts'] if item['name'] == 'DWSIM流程.dwxmz')
+        path = Path(native['localPath'])
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
+        inspected = await self.call('chem_dwsim', project_id=project_id, request={
+            'action': 'inspect', 'flowsheet_path': str(path), 'object_tags': ['HT-101']})
+        props = inspected['result']['objects'][0]['properties']
+        self.assertEqual(next(p for p in props if p['id'] == 'PROP_HT_2')['unit'], 'K')
+        updated = await self.call('chem_dwsim', project_id=project_id, request={'action': 'run',
+            'flowsheet_path': str(path), 'updates': [{'tag': 'HT-101', 'properties': {'PROP_HT_2': 360}}]})
+        self.assertTrue(updated['result']['validation']['passed'])
+        product = next(s for s in updated['result']['streams'] if s['tag'] == 'PRODUCT')
+        self.assertAlmostEqual(product['temperature_k'], 360, delta=1e-5)
+        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), before)
+        record = await self.call('chem_calculations', project_id=project_id, calculation_id=updated['calculationId'])
+        self.assertEqual(record['result']['version'], simulated['result']['version'])
+        self.assertEqual(len((await self.call('chem_calculations', project_id=project_id))['calculations']), 2)
 
     @connected
     async def test_shared_references_text_images_history_and_pinned_use(self):

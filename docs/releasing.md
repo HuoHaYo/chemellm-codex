@@ -31,10 +31,14 @@ python -X utf8 scripts/test_release.py
 
 在包含中文和空格的全新目录中完整解压；为子进程指定临时 Codex 配置目录，运行安装器。在测试 PATH 中移除 Python、Git、Node 和 Codex，验证安装器能找到已安装的桌面 Codex，并自行下载独立 Python。
 
-在解压包的独立解释器中运行 `scripts/test_kernel.py`、`scripts/test_codex_mcp.py`。检查 Codex 的插件缓存含本机启动配置，实际启动该缓存配置；再次运行安装器验证重复安装，保留既有 `data/` 与 `.chem/`。记录结果后提交源码、标记版本并推送 Git，创建 GitHub Release，上传 ZIP 和 SHA256 文件，再检查公开下载。
+在解压包的独立解释器中运行 `scripts/test_kernel.py`、`scripts/test_codex_mcp.py`、`scripts/test_dependencies.py` 和 `scripts/test_dwsim.py`；未安装 DWSIM 时如实记录跳过的真实仿真测试。检查 Codex 的插件缓存含本机启动配置，实际启动该缓存配置；再次运行安装器验证重复安装，保留既有 `data/` 与 `.chem/`。记录结果后提交源码、标记版本并推送 Git，创建 GitHub Release，上传 ZIP 和 SHA256 文件，再检查公开下载。
 
 `v0.3.0` 于 2026-10-30 完成上述验证：测试 PATH 无 Python/Git/Node/Codex 时，自动找到桌面 Codex 并准备 CPython 3.12.15；全新独立环境安装成功；HTTP 内核 2 项、真实 stdio MCP 2 项回归和发行包完整性 1 项测试通过；重复安装保留数据/快照哨兵文件；实际缓存配置启动并发现 14 个工具；uv 依赖兼容性检查通过。用户日常 Codex 配置未被本次隔离测试修改。
+
+`v0.4.0` 于 2026-10-31 在中文及空格路径中重新完成全新安装，测试 PATH 仅保留 Windows 系统目录；独立 CPython 3.12.15 虚拟环境不继承系统包，71 项锁定依赖与本项目安装成功。该环境内核 20 项、真实 stdio MCP 6 项、依赖安装流程 7 项和 DWSIM 6 项回归全部通过；DWSIM 使用本机实际引擎，没有跳过真实计算。加上发行包完整性与可重复构建 1 项，共 40 项测试通过。独立 Codex 配置注册 `0.4.0`，实际插件缓存启动发现 28 个工具；重复安装保留 `data/` 和 `.chem/` 哨兵文件，uv 依赖兼容性检查通过。依赖安装测试使用模拟安装器或拒绝未授权调用，没有实际安装可选工程软件。
 
 ## 官方格式核验
 
 2026-10-30 已读取 [OpenAI 官方打包文档](https://developers.openai.com/plugins/build/plugins) 和 [插件使用文档](https://developers.openai.com/codex/plugins)。文档明确继续支持 `.codex-plugin/plugin.json` 兼容布局、`skills` / `mcpServers` 引用、本地 marketplace，以及安装后新建会话。本版保留现有兼容布局，并补齐 marketplace 的认证策略和分类字段。发布到 GitHub Releases 是本项目的分发方式，不表示已上架 OpenAI 公共插件目录。
+
+2026-10-31 发布 `v0.4.0` 前再次读取官方打包文档和[技能文档](https://developers.openai.com/codex/skills)，确认兼容清单及带 `name` / `description` 的 `SKILL.md` 仍受支持。本版沿用现有结构；Windows PowerShell 5.1 的 uv 引导下载补充显式使用 `HTTPS_PROXY`，与后续 uv 下载的代理配置保持一致。

@@ -70,6 +70,9 @@ from app.toolbox import SCHEMAS, run_tool  # noqa: E402
 from app.catalog import TOOLS  # noqa: E402
 from app.pricing import PriceBook, PriceWrite, PriceConflict  # noqa: E402
 from app.references import ReferenceLibrary, ReferenceImport, ReferenceSave, ReferenceUse, ReferenceConflict  # noqa: E402
+from app.dwsim import DwsimInput  # noqa: E402
+from app.external_tools import find_freecad, find_libreoffice  # noqa: E402
+from kernel.dependencies import DependencyManager, DependencyPrepare, DependencyInstall  # noqa: E402
 
 import app.documents as _legacy_documents  # noqa: E402
 
@@ -80,6 +83,7 @@ MAX_INTAKE = 25 * 1024 * 1024
 MAX_TOOL_RESULT = 40000
 _write_lock = threading.RLock()
 REFERENCE_LIBRARY = ReferenceLibrary(DATA_ROOT, ROOT)
+DEPENDENCIES = DependencyManager(DATA_ROOT, ROOT)
 
 # LibreOffice conversion with a fixed, normally-permissioned profile directory.
 # The archived implementation uses Python's mkdtemp for the profile, which some
@@ -88,7 +92,7 @@ LO_PROFILE = KERNEL_DATA / "lo-profile"
 
 def _local_office_pdf(path: Path) -> Path | None:
     candidates = []
-    found = shutil.which("soffice") or shutil.which("libreoffice")
+    found = find_libreoffice()
     if found:
         candidates.append(found)
     candidates.extend([
@@ -120,7 +124,7 @@ CALC_TOOLS = {
     "economics", "reaction_thermo", "mixture_reaction", "distillation_shortcut",
     "pipe_pressure_drop", "pinch_analysis", "column_mesh", "aqueous_flash", "condenser_flash",
     "frontend_process", "wet_column", "wet_separation_train", "recycle_process", "fit_data",
-    "cantera_equilibrium", "cantera_reactor",
+    "cantera_equilibrium", "cantera_reactor", "dwsim",
 }
 SPECIAL_TOOLS = {"export_xlsx", "export_freecad", "pid", "pid_check", "pid_data",
                  "cad_part", "equipment_datasheet", "relief_sizing", "hazop_lopa",
@@ -461,6 +465,7 @@ def health():
         "phaseGate": PHASE_GATE,
         "dataDir": str(DATA_ROOT),
         "referenceDir": str(REFERENCE_LIBRARY.root),
+        "dwsim": dwsim_bridge.status(),
         "projectCount": len(list(PROJECTS_DIR.glob("*/project.json"))),
     }
 
@@ -469,12 +474,46 @@ def health():
 def tools():
     return {
         "tools": TOOLS,
-        "schemas": {name: schema.model_json_schema() for name, schema in SCHEMAS.items()},
+        "schemas": {name: schema.model_json_schema() for name, schema in {**SCHEMAS, 'dwsim': DwsimInput}.items()},
         "executable": sorted(list(SCHEMAS.keys() - {"ask_user", "acceptance"}) + list(SPECIAL_TOOLS)),
         "calcTools": sorted(CALC_TOOLS),
         "generateTools": sorted(GENERATE_TOOLS),
         "evidenceTools": sorted(EVIDENCE_TOOLS),
     }
+
+
+@app.get('/v1/dwsim')
+def dwsim_status():
+    return {'ok': True, 'status': dwsim_bridge.status()}
+
+
+def dependency_operation(function, *args):
+    try:
+        return function(*args)
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, KeyError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get('/v1/dependencies')
+def dependency_check(dependency: str | None = None):
+    return {'ok': True, **dependency_operation(DEPENDENCIES.check, dependency)}
+
+
+@app.post('/v1/dependencies/{dependency}/prepare')
+def dependency_prepare(dependency: str, p: DependencyPrepare):
+    return {'ok': True, **dependency_operation(DEPENDENCIES.prepare, dependency, p)}
+
+
+@app.post('/v1/dependency-installs')
+def dependency_install(p: DependencyInstall):
+    return {'ok': True, **dependency_operation(DEPENDENCIES.install, p)}
+
+
+@app.get('/v1/dependency-installs/{job_id}')
+def dependency_install_status(job_id: str):
+    return {'ok': True, **dependency_operation(DEPENDENCIES.install_status, job_id)}
 
 
 # --------------------------------------------------------------------------- #
@@ -728,18 +767,7 @@ DEFAULT_LAYOUT = [
 
 
 def _freecad_executable() -> Path | None:
-    candidates: list[Path] = []
-    found = shutil.which("freecadcmd") or shutil.which("FreeCADCmd")
-    if found:
-        candidates.append(Path(found))
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        candidates.extend(sorted(Path(local).glob("Programs/FreeCAD*/bin/freecadcmd.exe")))
-    candidates.extend(sorted(Path(r"C:\Program Files").glob("FreeCAD*/bin/FreeCADCmd.exe")))
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
+    return find_freecad()
 
 
 def _freecad_script(items: list[dict], fcstd: Path, step: Path) -> str:
@@ -992,62 +1020,83 @@ def export_freecad(project: dict, args: dict) -> dict:
 
 
 def run_dwsim(project: dict, args: dict) -> dict:
-    payload = dict(args or {})
-    action = str(payload.get("action") or "status").lower()
-    if action == "status":
-        return {
-            "status": dwsim_bridge.status(),
-            "warnings": [
-                "DWSIM 是外部 GPL 软件，不随插件分发；此处只做本机检测与调用。",
-            ],
-        }
-    if action != "run":
-        raise HTTPException(status_code=422, detail="action 必须是 status 或 run")
-    raw_path = str(payload.get("flowsheet_path") or "").strip()
-    if not raw_path:
-        raise HTTPException(status_code=422, detail="run 需要 flowsheet_path")
-    path = Path(raw_path)
-    if not path.is_absolute():
-        path = (ROOT / path).resolve()
-    temp = KERNEL_DATA / "dwsim-temp"
     try:
-        result = dwsim_bridge.run_flowsheet(path, temp)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)[:1200]) from exc
-    ident = uid()
-    folder = KERNEL_DATA / "artifacts" / ident
-    folder.mkdir(parents=True, exist_ok=True)
-    json_path = folder / "DWSIM结果.json"
-    csv_path = folder / "DWSIM物流表.csv"
-    json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    csv_path.write_text(dwsim_bridge.streams_csv(result), encoding="utf-8-sig")
-    records = [
-        artifact_record(project["id"], json_path, name="DWSIM结果.json", kind="json",
-                        metadata={"source": "kernel dwsim", "flowsheet": str(path),
-                                  "solved": bool(result.get("solved"))}),
-        artifact_record(project["id"], csv_path, name="DWSIM物流表.csv", kind="csv",
-                        metadata={"source": "kernel dwsim", "flowsheet": str(path)}),
-    ]
-    warnings = [
-        "DWSIM 为外部 GPL 软件，不随插件分发；结果取决于 flowsheet 内的物性包、单元模型与收敛设置。",
-        "DWSIM 输出未做项目专业审核，不能替代设计校核或厂家数据。",
-        "温度单位 K、压力单位 Pa、质量流量单位 kg/s；组成来自 DWSIM 物流（摩尔分数）。",
-    ]
-    if not result.get("solved"):
-        warnings.insert(0, "DWSIM 未收敛（solved=false），物流结果不可用；请检查 flowsheet 与收敛设置。")
-    if not result.get("streams"):
-        warnings.append("该 flowsheet 未返回物料流；可能是纯能量/动态/自定义单元流程。")
-    return {
-        "artifacts": records,
-        "summary": {
-            "engine": result.get("engine"), "version": result.get("version"),
-            "flowsheet": str(path), "solved": bool(result.get("solved")),
-            "stream_count": len(result.get("streams") or []),
-            "unit_count": len(result.get("unit_operations") or []),
-            "error": str(result.get("error") or ""),
-        },
-        "warnings": warnings,
-    }
+        request = DwsimInput.model_validate(args)
+        if request.action == 'status':
+            return {'status': dwsim_bridge.status()}
+        if request.action == 'catalog':
+            return dwsim_bridge.catalog(KERNEL_DATA/'dwsim-catalog', query=request.compound_query,
+                                       offset=request.offset, limit=request.limit, timeout=request.timeout_seconds)
+        source = None
+        source_meta = None
+        if request.flowsheet_path:
+            source = Path(request.flowsheet_path).expanduser()
+            source = (ROOT/source).resolve() if not source.is_absolute() else source.resolve()
+            roots = [ROOT.resolve(), DATA_ROOT.resolve()]
+            home = dwsim_bridge.find_home()
+            if home:
+                roots.append((home/'samples').resolve())
+            if not any(source.is_relative_to(root) for root in roots):
+                raise ValueError('流程文件须位于当前仓库、数据目录或 DWSIM samples 目录内')
+            dwsim_bridge.validate_flowsheet(source)
+            source_meta = {'path': str(source), 'sha256': hashlib.sha256(source.read_bytes()).hexdigest()}
+        ident = uid()
+        folder = KERNEL_DATA/'artifacts'/ident if request.action != 'inspect' else KERNEL_DATA/'dwsim-inspect'/ident
+        folder.mkdir(parents=True, exist_ok=True)
+        input_copy = None
+        if source:
+            input_copy = folder/('原始流程'+source.suffix.lower())
+            shutil.copyfile(source, input_copy)
+            if hashlib.sha256(input_copy.read_bytes()).hexdigest() != source_meta['sha256']:
+                raise ValueError('原始流程在复制期间发生修改，请保存后重试')
+            request = request.model_copy(update={'flowsheet_path': str(input_copy)})
+        native_path = folder/'DWSIM流程.dwxmz'
+        result = dwsim_bridge.invoke(request, folder/'work', save_path=native_path if request.action != 'inspect' else None)
+        result['input_source'] = source_meta
+        result['executed_at'] = _utc()
+        if request.action == 'inspect':
+            inspection_path = folder/'DWSIM检查.json'
+            inspection_path.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2), encoding='utf-8')
+            objects = result.get('objects') or []
+            result['matched_objects'] = len(objects)
+            result['objects'] = objects[request.offset:request.offset+request.limit]
+            result['next_offset'] = request.offset+request.limit if request.offset+request.limit < len(objects) else None
+            for obj in result['objects']:
+                if 'properties' in obj:
+                    properties = obj['properties']
+                    obj['total_properties'] = len(properties)
+                    obj['properties'] = properties[request.property_offset:request.property_offset+request.property_limit]
+                    obj['next_property_offset'] = request.property_offset+request.property_limit if request.property_offset+request.property_limit < len(properties) else None
+            result['inspection_path'] = str(inspection_path)
+            result['note'] = '仅载入检查，未重新求解；数值来自模型保存状态。展开属性请提供 object_tags，更多属性按 property_offset 分页读取。'
+            return result
+        if not native_path.is_file():
+            raise ValueError('DWSIM 未保存原生模型，不能宣称仿真已完整交付；日志：'+str(folder/'work'))
+        if native_path.stat().st_size > MAX_INTAKE:
+            raise ValueError('DWSIM 原生输出超过25 MiB，已保留文件：'+str(native_path))
+        passed = bool(result.get('solved')) and not result.get('solver_errors') and not result.get('result_errors')
+        result['model'] = 'DWSIM Automation3 steady-state'
+        result['validation'] = {'passed': passed, 'scope': 'DWSIM 求解收敛与结果读取；不代表物性适用性、工程标准符合性或专业审核'}
+        result['warnings'] = [
+            '物性包、二元参数及单元设置须结合体系核对；本接口执行稳态求解。',
+            '物流温度 K、压力 Pa、质量流量 kg/s、组成为摩尔分数；热流 kW，其他属性单位随字段返回。',
+        ]
+        if not passed:
+            result['warnings'].insert(0, 'DWSIM 未成功收敛或结果不完整；保留失败模型和诊断，不能用于设计结论。')
+        input_path, json_path, csv_path = folder/'DWSIM输入.json', folder/'DWSIM结果.json', folder/'DWSIM物流表.csv'
+        input_path.write_text(json.dumps({'request': args, 'source': source_meta}, ensure_ascii=False, indent=2), encoding='utf-8')
+        json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8')
+        csv_path.write_text(dwsim_bridge.streams_csv(result), encoding='utf-8-sig')
+        records = [artifact_record(project['id'], path, metadata={'source': 'DWSIM Automation3',
+                    'version': result.get('version'), 'input_source': source_meta, 'solved': bool(result.get('solved'))})
+                   for path in [input_path, json_path, csv_path, native_path, *([input_copy] if input_copy else [])]]
+        calculation_id = uid()
+        result['artifacts'] = records
+        execute('INSERT INTO calculations VALUES(?,?,?,?,?,?)', (calculation_id, project['id'], 'dwsim',
+                json.dumps(args, ensure_ascii=False, allow_nan=False), json.dumps(result, ensure_ascii=False, allow_nan=False), _utc()))
+        return {'calculation_id': calculation_id, **result}
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)[:2400]) from exc
 
 
 def export_compliance_matrix(project: dict, args: dict) -> dict:
@@ -1356,6 +1405,24 @@ def execute_tool(project_id: str, p: ExecuteIn):
         raise HTTPException(status_code=422, detail="该工具不在此入口执行")
     if p.tool not in SCHEMAS and p.tool not in SPECIAL_TOOLS:
         raise HTTPException(status_code=422, detail="未知工具：" + p.tool)
+    if p.tool == 'dwsim':
+        try:
+            request = DwsimInput.model_validate(p.args)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)[:2000]) from exc
+        if request.action in {'status', 'catalog', 'inspect'}:
+            result = run_dwsim(project, p.args)
+            return {'ok': True, 'tool': p.tool, 'calculationId': None, 'artifacts': [], **_truncate_result(result)}
+    dependency = {'dwsim': 'dwsim', 'export_freecad': 'freecad', 'cad_part': 'freecad',
+                  'cantera_equilibrium': 'cantera', 'cantera_reactor': 'cantera'}.get(p.tool)
+    if dependency:
+        from kernel.dependencies import probe
+        state = probe(dependency)
+        if not state['ready']:
+            raise HTTPException(status_code=409, detail={
+                'code': 'optional_dependency_required', 'dependency': dependency,
+                'state': state, 'reason': state['purpose'],
+                'next_step': '用 chem_dependency_prepare 准备方案，说明当前任务需要它的理由；询问真实用户是否安装，收到明确“是”后才 chem_dependency_install。已安装但接口不可用时先修复路径/运行器。'})
     warning = _gate_check(project, p.tool)
     ensure_legacy_project(project)
     if p.tool == "export_xlsx":

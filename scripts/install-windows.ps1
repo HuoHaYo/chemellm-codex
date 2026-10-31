@@ -76,7 +76,10 @@ try {
             (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $bootstrap.uvSha256) {
             Write-Host '[1/6] Downloading the pinned uv bootstrap...'
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -Uri $bootstrap.uvUrl -OutFile $archive -UseBasicParsing
+            $downloadOptions = @{ Uri = $bootstrap.uvUrl; OutFile = $archive; UseBasicParsing = $true }
+            # Windows PowerShell 5.1 does not automatically use HTTPS_PROXY.
+            if ($env:HTTPS_PROXY) { $downloadOptions.Proxy = $env:HTTPS_PROXY }
+            Invoke-WebRequest @downloadOptions
         }
         if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $bootstrap.uvSha256) {
             throw 'Bootstrap SHA256 does not match. Download stopped; rerun the installer.'
