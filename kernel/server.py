@@ -68,6 +68,8 @@ import dwsim_bridge  # noqa: E402
 import cad_engineering  # noqa: E402
 from app.toolbox import SCHEMAS, run_tool  # noqa: E402
 from app.catalog import TOOLS  # noqa: E402
+from app.pricing import PriceBook, PriceWrite, PriceConflict  # noqa: E402
+from app.references import ReferenceLibrary, ReferenceImport, ReferenceSave, ReferenceUse, ReferenceConflict  # noqa: E402
 
 import app.documents as _legacy_documents  # noqa: E402
 
@@ -77,6 +79,7 @@ KERNEL_TOKEN = os.getenv("CHEMELLM_KERNEL_TOKEN", "")
 MAX_INTAKE = 25 * 1024 * 1024
 MAX_TOOL_RESULT = 40000
 _write_lock = threading.RLock()
+REFERENCE_LIBRARY = ReferenceLibrary(DATA_ROOT, ROOT)
 
 # LibreOffice conversion with a fixed, normally-permissioned profile directory.
 # The archived implementation uses Python's mkdtemp for the profile, which some
@@ -170,7 +173,12 @@ def _utc() -> str:
 
 
 def project_dir(project_id: str) -> Path:
-    return PROJECTS_DIR / project_id
+    if not project_id or project_id in {'.', '..'} or any(ch in project_id for ch in '/\\\x00'):
+        raise HTTPException(status_code=422, detail="项目标识符不能包含路径分隔符")
+    target = (PROJECTS_DIR / project_id).resolve()
+    if target.parent != PROJECTS_DIR.resolve():
+        raise HTTPException(status_code=422, detail="项目路径越界")
+    return target
 
 
 def project_file(project_id: str) -> Path:
@@ -181,7 +189,11 @@ def load_project(project_id: str) -> dict:
     path = project_file(project_id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="项目不存在：" + project_id)
-    return json.loads(path.read_text(encoding="utf-8"))
+    with _write_lock:
+        project = json.loads(path.read_text(encoding="utf-8"))
+        if (project_dir(project_id) / 'prices').exists():
+            sync_prices(project)
+        return project
 
 
 def derive_phase(project: dict) -> str:
@@ -225,6 +237,15 @@ def snapshot_project(project: dict) -> None:
         json.dumps(project.get("files") or [], ensure_ascii=False, indent=2), encoding="utf-8")
     (folder / "reviews.json").write_text(
         json.dumps(project.get("review") or {}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (folder / 'references.json').write_text(
+        json.dumps(project.get('references') or [], ensure_ascii=False, indent=2), encoding='utf-8')
+    if project.get('prices'):
+        for name in ('prices.json', 'history.json'):
+            source = project_dir(project['id']) / 'prices' / name
+            if source.is_file():
+                destination = folder / 'prices' / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
 
 
 def save_project(project: dict) -> dict:
@@ -237,6 +258,24 @@ def save_project(project: dict) -> dict:
     tmp.replace(path)
     snapshot_project(project)
     return project
+
+
+def sync_prices(project: dict) -> dict:
+    """Import validated manual edits and invalidate review before using a project."""
+    try:
+        prices = PriceBook(project_dir(project['id']) / 'prices').read()
+    except PriceConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail='价格文件无效，未覆盖原文件：' + str(exc)[:1800]) from exc
+    previous = project.get('prices')
+    if previous != prices:
+        if prices['revision'] != (previous or {}).get('revision', 0):
+            project['review'] = {}
+            project['bundle'] = None
+        project['prices'] = prices
+        save_project(project)
+    return prices
 
 
 def ensure_legacy_project(project: dict) -> None:
@@ -258,6 +297,8 @@ def summary_of(project: dict) -> dict:
             "objects": len([o for o in (project.get("objects") or {}).values() if o.get("quantities")]),
             "calculations": len(project.get("calculations") or []),
             "files": len(project.get("files") or []),
+            "prices": len((project.get('prices') or {}).get('items') or []),
+            "references": len(project.get('references') or []),
         },
         "ready": bool((project.get("review") or {}).get("ready")),
     }
@@ -419,6 +460,7 @@ def health():
         "version": KERNEL_VERSION,
         "phaseGate": PHASE_GATE,
         "dataDir": str(DATA_ROOT),
+        "referenceDir": str(REFERENCE_LIBRARY.root),
         "projectCount": len(list(PROJECTS_DIR.glob("*/project.json"))),
     }
 
@@ -438,6 +480,59 @@ def tools():
 # --------------------------------------------------------------------------- #
 # projects
 # --------------------------------------------------------------------------- #
+def reference_operation(function, *args, **kwargs):
+    try:
+        return function(*args, **kwargs)
+    except ReferenceConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        raise HTTPException(status_code=422, detail='资料操作失败，原件/编辑内容请保留：'+str(exc)[:1800]) from exc
+
+
+@app.post('/v1/references/import')
+def reference_import(p: ReferenceImport):
+    return {'ok': True, 'reference': reference_operation(REFERENCE_LIBRARY.import_reference, p)}
+
+
+@app.get('/v1/references')
+def reference_search(query: str = '', offset: int = 0, limit: int = 10):
+    return {'ok': True, **reference_operation(REFERENCE_LIBRARY.search, query, offset=offset, limit=limit)}
+
+
+@app.get('/v1/references/{reference_id}')
+def reference_read(reference_id: str, revision: int | None = None, view: str = 'source',
+                   page: int | None = None, block_ids: str = '', offset: int = 0, limit: int = 10):
+    return {'ok': True, 'reference': reference_operation(REFERENCE_LIBRARY.read, reference_id,
+            revision=revision, view=view, page=page, block_ids=block_ids.split(',') if block_ids else None,
+            offset=offset, limit=limit)}
+
+
+@app.post('/v1/references/{reference_id}')
+def reference_save(reference_id: str, p: ReferenceSave):
+    return {'ok': True, 'reference': reference_operation(REFERENCE_LIBRARY.save, reference_id, p)}
+
+
+@app.post('/v1/projects/{project_id}/references')
+def reference_use(project_id: str, p: ReferenceUse):
+    with _write_lock:
+        project = load_project(project_id)
+        ensure_legacy_project(project)
+        result = reference_operation(REFERENCE_LIBRARY.use, project_id, p)
+        references = project.setdefault('references', [])
+        if not any(item['use_id'] == result['use_id'] for item in references):
+            references.append({key: value for key, value in result.items() if key != 'artifacts'})
+            existing = {item['artifactId'] for item in project.get('files') or []}
+            for artifact in _normalize_artifacts(result['artifacts'], []):
+                if artifact['artifactId'] not in existing:
+                    project.setdefault('files', []).append({**artifact, 'origin': 'reference',
+                                                           'createdAt': _utc(), 'referenceId': p.reference_id,
+                                                           'referenceRevision': p.revision})
+            project['review'] = {}
+            project['bundle'] = None
+            save_project(project)
+        return {'ok': True, **result}
+
+
 @app.get("/v1/projects")
 def list_projects():
     result = []
@@ -477,6 +572,36 @@ def create_project(p: ProjectCreate):
 def get_project(project_id: str):
     project = load_project(project_id)
     return {"ok": True, "project": project, "summary": summary_of(project)}
+
+
+@app.get('/v1/projects/{project_id}/prices')
+def list_prices(project_id: str):
+    with _write_lock:
+        project = load_project(project_id)
+        return {'ok': True, 'prices': sync_prices(project)}
+
+
+@app.post('/v1/projects/{project_id}/prices')
+def save_prices(project_id: str, p: PriceWrite):
+    with _write_lock:
+        project = load_project(project_id)
+        try:
+            PriceBook(project_dir(project_id) / 'prices').save(p)
+        except PriceConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)[:2000]) from exc
+        return {'ok': True, 'prices': sync_prices(project)}
+
+
+@app.get('/v1/projects/{project_id}/prices/history')
+def price_history(project_id: str, key: str | None = None, offset: int = 0, limit: int = 50):
+    if offset < 0 or not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail='offset 须非负，limit 须在 1–100 之间')
+    with _write_lock:
+        project = load_project(project_id)
+        sync_prices(project)
+        return {'ok': True, **PriceBook(project_dir(project_id) / 'prices').events(key, offset, limit)}
 
 
 @app.delete("/v1/projects/{project_id}")
@@ -1273,6 +1398,8 @@ def execute_tool(project_id: str, p: ExecuteIn):
         "args": p.args,
         **verification,
     }
+    if p.tool == 'economics' and project.get('prices'):
+        record['priceRevision'] = project['prices']['revision']
     project.setdefault("calculations", []).append(record)
     for artifact in artifacts:
         project.setdefault("files", []).append({
@@ -1447,6 +1574,15 @@ def review(project_id: str, p: ReviewIn):
     unverified = [c for c in calculations
                   if c.get("tool") in CALC_TOOLS and "passed" not in (c.get("validation") or {})]
     result_warnings = []
+    for reference in project.get('references') or []:
+        if any(citation.get('ocr') for citation in reference.get('citations') or []):
+            result_warnings.append('引用资料含待核对的图片逐字转录：'+reference['reference_id'][:12])
+    prices = project.get('prices') or {}
+    for item in prices.get('pending_review') or []:
+        result_warnings.append('价格待核对 ' + item['key'] + '：' + '；'.join(item['reasons']))
+    economic_records = [c for c in calculations if c.get('tool') == 'economics']
+    if economic_records and prices.get('revision') and economic_records[-1].get('priceRevision') != prices['revision']:
+        blockers.append('价格台账已更新，需按当前价格重新汇总并执行经济评价')
     if unverified:
         result_warnings.append("以下计算没有显式校验结果，需人工核对：" +
                                "、".join(str(c.get("tool")) for c in unverified[:8]))
@@ -1489,6 +1625,15 @@ def bundle(project_id: str):
         archive.writestr("requirements.json", json.dumps(project.get("requirements") or [], ensure_ascii=False, indent=2))
         archive.writestr("plan.json", json.dumps(project.get("plan") or {}, ensure_ascii=False, indent=2))
         archive.writestr("calculations.json", json.dumps(project.get("calculations") or [], ensure_ascii=False, indent=2))
+        archive.writestr('references.json', json.dumps(project.get('references') or [], ensure_ascii=False, indent=2))
+        if project.get('prices'):
+            for name in ('prices.json', 'history.json'):
+                path = project_dir(project_id) / 'prices' / name
+                arcname = 'prices/' + name
+                content = path.read_bytes()
+                archive.writestr(arcname, content)
+                manifest['files'].append({'name': name, 'archivePath': arcname,
+                                          'sha256': hashlib.sha256(content).hexdigest()})
         for artifact in project.get("files") or []:
             aid = artifact.get("artifactId")
             if not aid:

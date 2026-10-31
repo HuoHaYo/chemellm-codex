@@ -8,14 +8,19 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+from typing import Literal
 from urllib.parse import quote
 
 import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent
+from mcp.server.fastmcp.utilities.types import Image as MCPImage
 
 from kernel import server as kernel
+from app.pricing import PriceItem
+from app.references import ReferenceSource, ReferenceEntry
 
 
 def segment(value: str) -> str:
@@ -100,6 +105,9 @@ def create_server() -> FastMCP:
         "chemellm",
         instructions=("化工计算和工程成果使用本地项目、真实工具结果及可追溯依据。"
                       "先读项目和工具参数；数值保留单位、条件、来源。"
+                      "收到真实价格后用 chem_price_save 持久化；先 chem_prices 读取版本。缺价估值须标为 assumption 并说明依据，不得覆盖真实价格。"
+                      "每次新增或更新价格填写本次 source，并在 notes 备注题设假定、工厂报价或 AI 暂估及适用背景；引用时结合备注判断。"
+                      "设计资料使用 chem_reference_* 自动归档到共享库；当前会话读取原文/图像后保存带定位的整理稿，引用固定版本并回看原文。"
                       "自动校核不能替代专业审核。失败后先核对项目状态再重试。"),
         lifespan=lifespan,
         log_level="WARNING",
@@ -109,6 +117,77 @@ def create_server() -> FastMCP:
 
     def project_path(project_id: str) -> str:
         return "/v1/projects/" + segment(project_id)
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True))
+    async def chem_reference_import(source: ReferenceSource, path: str | None = None,
+                                    text: str | None = None, url: str | None = None,
+                                    name: str | None = None) -> dict:
+        """归档文件、粘贴原文或公开网址（三选一）到跨项目共享库；保留原件、来源、全文和处理进度。
+
+        不调用模型 API。后续由当前 Codex 会话读取、识图并保存整理稿。文件须在本仓库或数据目录，最多25 MiB。
+        """
+        return await bridge.request('POST', '/v1/references/import', {
+            'source': source.model_dump(), 'path': path, 'text': text, 'url': url, 'name': name})
+
+    @server.tool(annotations=write)
+    async def chem_reference_read(reference_id: str, revision: int | None = None,
+                                  view: Literal['metadata', 'source', 'organized', 'image'] = 'source',
+                                  page: int | None = None, block_ids: list[str] | None = None,
+                                  offset: int = 0, limit: int = 10) -> CallToolResult:
+        """分页读原文、整理稿或历史版本；view=image 将指定页直接作为图像返回给当前 Codex 识读。
+
+        source 的 b... 是原文定位；organized 的 t-... 是待核对逐字转录，s-... 是不能冒充原文的整理稿。
+        读取当前版本会记录本地文件编辑；next_offset 表示尚有内容。混合 PDF 页也可读取图像。
+        """
+        from urllib.parse import urlencode
+        query = {'view': view, 'offset': offset, 'limit': limit}
+        if revision is not None:
+            query['revision'] = revision
+        if page is not None:
+            query['page'] = page
+        if block_ids:
+            query['block_ids'] = ','.join(block_ids)
+        result = await bridge.request('GET', '/v1/references/'+segment(reference_id)+'?'+urlencode(query))
+        content = [TextContent(type='text', text=json.dumps(result, ensure_ascii=False))]
+        rendered = result['reference'].get('image')
+        if rendered:
+            path = Path(rendered['localPath']).resolve()
+            if not path.is_relative_to(kernel.REFERENCE_LIBRARY.root):
+                raise ToolError('资料图像路径越界')
+            content.append(MCPImage(path=path).to_image_content())
+        return CallToolResult(content=content, structuredContent=result)
+
+    @server.tool(annotations=write)
+    async def chem_reference_save(reference_id: str, expected_revision: int, reason: str,
+                                  source: ReferenceSource | None = None, overview: str | None = None,
+                                  entries: list[ReferenceEntry] | None = None,
+                                  remove_keys: list[str] | None = None, brief: str | None = None) -> dict:
+        """保存当前会话的来源备注、概览和条目，按 key 合并、保留历史；先读当前版本以免覆盖手工编辑。
+
+        每条关联 source_block_ids。图片逐字识读用 transcription，精简用 summary/table/formula/figure；不清处标[不清]。
+        不改动原件或原文层；长资料可分批整理、以后补充。
+        """
+        return await bridge.request('POST', '/v1/references/'+segment(reference_id), {
+            'expected_revision': expected_revision, 'reason': reason,
+            'source': source.model_dump() if source else None, 'overview': overview,
+            'entries': [entry.model_dump() for entry in entries or []],
+            'remove_keys': remove_keys or [], 'brief': brief})
+
+    @server.tool(annotations=write)
+    async def chem_reference_search(query: str = '', offset: int = 0, limit: int = 10) -> dict:
+        """检索共享库的来源备注、原文及整理稿，返回版本和定位；空 query 分页列出资料。引用前回看原文。"""
+        from urllib.parse import urlencode
+        return await bridge.request('GET', '/v1/references?'+urlencode({'query': query, 'offset': offset, 'limit': limit}))
+
+    @server.tool(annotations=write)
+    async def chem_reference_use(project_id: str, reference_id: str, revision: int,
+                                 block_ids: list[str], purpose: str) -> dict:
+        """把原文/逐字转录的固定版本复制到项目，返回可供 evidence_add 使用的 snapshot_id/block_id。
+
+        项目副本不随共享库更新，原件、来源和整理稿随项目打包；删除项目不会删除共享库。
+        """
+        return await bridge.request('POST', project_path(project_id)+'/references', {
+            'reference_id': reference_id, 'revision': revision, 'block_ids': block_ids, 'purpose': purpose})
 
     @server.tool(annotations=read)
     async def chem_health() -> dict:
@@ -145,6 +224,35 @@ def create_server() -> FastMCP:
     async def chem_project(project_id: str) -> dict:
         """读取要求、计划、工程对象、计算、文件和审核状态。"""
         return await bridge.request("GET", project_path(project_id))
+
+    @server.tool(annotations=write)
+    async def chem_prices(project_id: str) -> dict:
+        """读取当前价格、版本、待核对项及可编辑本地文件路径；自动把手工增删改保存为历史版本。"""
+        return await bridge.request('GET', project_path(project_id) + '/prices')
+
+    @server.tool(annotations=write)
+    async def chem_price_save(project_id: str, items: list[PriceItem], expected_revision: int,
+                              reason: str, mode: Literal['upsert', 'fill_missing'] = 'upsert') -> dict:
+        """按稳定 key 更新设备和其他费用，保留旧值历史。先读 chem_prices，再给出当前版本和完整行。
+
+        origin=quotation 表示真实价格，assumption 表示有估算依据的假设。
+        fill_missing 只补充缺项假设；真实报价使用 upsert。未知元数据留空并返回待核对项。
+        每次更新填写本次价格的 source；notes 备注题设假定、工厂报价或 AI 暂估及适用背景。
+        """
+        return await bridge.request('POST', project_path(project_id) + '/prices', {
+            'items': [item.model_dump(mode='json') for item in items],
+            'expected_revision': expected_revision, 'reason': reason, 'mode': mode,
+        })
+
+    @server.tool(annotations=write)
+    async def chem_price_history(project_id: str, key: str | None = None,
+                                 offset: int = 0, limit: int = 50) -> dict:
+        """读取价格历次增删改的时间、操作者、理由与前后完整数值；可按 key 筛选，自动导入本地编辑。"""
+        from urllib.parse import urlencode
+        query = {'offset': offset, 'limit': limit}
+        if key is not None:
+            query['key'] = key
+        return await bridge.request('GET', project_path(project_id) + '/prices/history?' + urlencode(query))
 
     @server.tool(annotations=write)
     async def chem_requirements(project_id: str, items: list[kernel.RequirementItem]) -> dict:

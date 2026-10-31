@@ -118,6 +118,8 @@ def add_evidence(project_id, p):
                   "transcription_prompt_version":block.get("transcription_prompt_version"),
                   "supersedes_evidence_id":p.supersedes_evidence_id,
                   "bibliography":bibliography,"source_url":source_metadata.get("fulltext_source",{}).get("source_url") or ("https://doi.org/"+bibliography["DOI"] if bibliography.get("DOI") else None),
+                  "shared_reference":source_metadata.get('shared_reference'),
+                  "source_notes":source_metadata.get('source_notes'),
                   "ocr": block.get("ocr", False), "semantic_assessment": "annotation_requires_human_review"}
     with connection() as db:
         previous = db.execute("SELECT * FROM research_claims WHERE id=? AND project_id=?", (p.claim_id, project_id)).fetchone()
@@ -222,6 +224,7 @@ def export_evidence(project_id):
             body.extend(["证据状态："+("历史已替换" if item["superseded"] else "当前；转录待复核" if item["transcription_outdated"] else "当前"),
                          "来源："+data["source_name"]+"；位置："+json.dumps(data["locator"], ensure_ascii=False),
                          "文献归属："+json.dumps(data.get("bibliography",{}),ensure_ascii=False),"来源链接："+(data.get("source_url") or "见项目原文件及来源记录"),
+                         "来源备注："+json.dumps(data.get('source_notes') or {},ensure_ascii=False),
                          "原文：“"+data["quote"]+"”", "条件/关系标注："+data["conditions"]+" / "+data["relation"],
                          "转录纠正历史："+json.dumps(data.get("transcription_history",[]),ensure_ascii=False),
                          "原件SHA256："+data["source_sha256"]+"；快照："+item["snapshot_id"]])

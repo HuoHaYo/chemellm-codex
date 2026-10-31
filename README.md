@@ -36,6 +36,8 @@ codex plugin add chemellm@chemellm-local
 | 健康、参数目录 | `chem_health`、`chem_tools` |
 | 项目 | `chem_projects`、`chem_create_project`、`chem_project` |
 | 要求、计划、工程依据 | `chem_requirements`、`chem_plan`、`chem_object` |
+| 当前价格、更新、变更历史 | `chem_prices`、`chem_price_save`、`chem_price_history` |
+| 共享资料归档、读取、整理、检索、引用 | `chem_reference_import`、`chem_reference_read`、`chem_reference_save`、`chem_reference_search`、`chem_reference_use` |
 | 计算、证据、生成 | `chem_execute`、`chem_calculations` |
 | 材料、成果文件 | `chem_intake`、`chem_artifact` |
 | 自动校核、打包 | `chem_review`、`chem_bundle` |
@@ -43,6 +45,10 @@ codex plugin add chemellm@chemellm-local
 `chem_tools(tool=...)` 返回底层工具参数 schema；特殊工具没有 schema 时应查对应 `kernel/` 模块约定。完整项目和计算记录还可通过 `chemellm://projects/{project_id}`、`chemellm://calculations/{project_id}/{calculation_id}` 资源读取。
 
 成果包含 `localPath`、字节数和 SHA256，直接用绝对路径打开。返回的 `/v1/...` 路径属于内核契约；MCP 模式不提供外部 HTTP 下载端点。计算或生成中断后应先核对项目记录再重试。
+
+设备及其他费用保存在 `data/projects/<项目ID>/prices/prices.json`，用户可直接编辑；同目录 `history.json` 保留历次增删改的前后值、时间与理由。AI 收到真实价格后按稳定标识更新，缺价时保存有依据且明确标注的假设；不会用假设覆盖已有真实价格。价格更新使旧自动校核失效，台账与历史随成果包交付。字段与用法见 [价格台账说明](docs/pricing.md)。已安装插件需要重载 MCP、新会话加载更新后的技能，才能发现新增工具。
+
+标准、手册及参考资料可归档到 `data/references/` 跨项目复用，保留原件、来源、全文分块和有历史版本的整理稿。图片由工具直接返回给当前 Codex 会话识读，无需另配模型 API；长资料先建索引，再按任务补充精简。项目引用固定版本及独立副本，随成果包保存。用法见 [共享资料库说明](docs/references.md)。
 
 ## 数据和工程边界
 
