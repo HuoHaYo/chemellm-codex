@@ -32,7 +32,9 @@ async def check(config_path: Path) -> None:
                 assert health["phaseGate"] == "enforce", health
                 tools = await session.list_tools()
                 names = {tool.name for tool in tools.tools}
-                assert {"chem_execute", "chem_project", "chem_review", "chem_bundle"} <= names
+                assert {"chem_execute", "chem_project", "chem_review", "chem_bundle", "chem_dwsim_study", "chem_dwsim_publish"} <= names
+                model_schema=next(tool for tool in tools.tools if tool.name=='chem_dwsim').inputSchema
+                assert 'check' in str(model_schema), 'DWSIM preflight action missing'
                 print(f"MCP startup OK; {len(names)} tools found; isolated storage and phase gate OK.")
 
 

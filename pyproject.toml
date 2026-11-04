@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chemellm-codex"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local chemical-engineering tools and evidence workflow for Codex via MCP"
 requires-python = ">=3.11"
 dependencies = [
@@ -45,4 +45,4 @@ simulation = ["cantera==3.2.0", "ruamel.yaml==0.18.16"]
 packages = ["app", "kernel", "chemellm_codex"]
 
 [tool.setuptools.package-data]
-kernel = ["dwsim/*.cs", "dwsim/*.exe", "dwsim/*.config"]
+kernel = ["dwsim/*.cs", "dwsim/*.exe", "dwsim/*.config", "dwsim/*.json"]

@@ -211,6 +211,7 @@ def build_datasheet(payload: dict) -> dict:
         "warnings": warnings,
         "limits": list(payload.get("limits") or LIMITS),
         "generated_by": "kernel equipment_datasheet",
+        "sources": payload.get('sources',[]),
     }
 
 

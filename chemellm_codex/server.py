@@ -22,6 +22,7 @@ from kernel import server as kernel
 from app.pricing import PriceItem
 from app.references import ReferenceSource, ReferenceEntry
 from app.dwsim import DwsimInput
+from app.dwsim_workflows import StudyInput, PublishInput
 from kernel.dependencies import DependencyInstall
 
 
@@ -158,12 +159,22 @@ def create_server() -> FastMCP:
     async def chem_dwsim(project_id: str, request: DwsimInput) -> dict:
         """使用本机 DWSIM 做稳态仿真，创建/载入流程、检查参数、修改工况及求解。
 
-        catalog 查真实组分/物性包；inspect 查位号、端口和可写属性及单位。
+        catalog 查真实组分/物性包；inspect 查位号、端口和可写属性及单位；check 只检查不求解。
         create 提供 model；run 提供 flowsheet_path 和可选 updates。原文件保留，另存原生模型、物流表和完整计算记录。
         求解前保存项目要求、计划和依据；只在 solved 和 validation.passed 都为 true 时使用计算值。
         """
         return await bridge.request('POST', project_path(project_id)+'/execute', {
             'tool': 'dwsim', 'args': request.model_dump(mode='json')})
+
+    @server.tool(annotations=write)
+    async def chem_dwsim_study(project_id: str, request: StudyInput) -> dict:
+        """固定原生模型，串行比较最多50个工况；start/status/resume/cancel。每点保留独立记录，失败点不进入设计包络。"""
+        return await bridge.request('POST',project_path(project_id)+'/dwsim/study',request.model_dump(mode='json'))
+
+    @server.tool(annotations=write)
+    async def chem_dwsim_publish(project_id: str, request: PublishInput) -> dict:
+        """将通过完整校核的结果按明确路径/位号映射到工程对象；检查版本，记录计算来源及工况，可对比带来源参考数据。操作参数不等于机械设计参数。"""
+        return await bridge.request('POST',project_path(project_id)+'/dwsim/publish',request.model_dump(mode='json'))
 
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True))
     async def chem_reference_import(source: ReferenceSource, path: str | None = None,

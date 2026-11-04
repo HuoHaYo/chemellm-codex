@@ -2,11 +2,13 @@
 
 面向 Codex 的本地化工工程插件：技能负责工程流程，stdio MCP 连接本仓库的计算、证据、文档、工程对象、自动校核和成果打包能力。MCP 在进程内复用 HTTP 内核，不需要预先启动服务，也不占用 TCP 端口。
 
-当前版本 `0.4.0`，提供 Windows x64 一键联网安装包。安装后需在新 Codex 会话中加载；发布测试使用隔离配置，不修改开发者日常插件设置。
+当前版本 `0.5.0`，提供 Windows x64 一键联网安装包。安装后需在新 Codex 会话中加载；发布测试使用隔离配置，不修改开发者日常插件设置。
+
+产品介绍与安装包下载：[chemellm.online](https://chemellm.online/)。官网为独立静态站点；部署与更新见 [官网维护说明](docs/website.md)。
 
 ## 用户安装
 
-从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.4.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
+从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.5.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
 
 先安装并登录支持插件的 Codex 桌面版或 CLI。看到 `Installed successfully` 后重启 Codex、开启新会话，即可提出化工任务。双击 **`CHECK.cmd`** 可再次检查运行环境。项目数据保存到解压目录 `data/`，快照在 `.chem/`；安装完成后保留整个目录。
 
@@ -35,7 +37,7 @@ codex plugin add chemellm@chemellm-local
 | --- | --- |
 | 健康、参数目录 | `chem_health`、`chem_tools` |
 | 可选工具检测、安装方案、授权安装、进度 | `chem_dependencies`、`chem_dependency_prepare`、`chem_dependency_install`、`chem_dependency_install_status` |
-| DWSIM 环境与稳态流程仿真 | `chem_dwsim_status`、`chem_dwsim` |
+| DWSIM 稳态检查、仿真、多工况与设计联动 | `chem_dwsim_status`、`chem_dwsim`、`chem_dwsim_study`、`chem_dwsim_publish` |
 | 项目 | `chem_projects`、`chem_create_project`、`chem_project` |
 | 要求、计划、工程依据 | `chem_requirements`、`chem_plan`、`chem_object` |
 | 当前价格、更新、变更历史 | `chem_prices`、`chem_price_save`、`chem_price_history` |

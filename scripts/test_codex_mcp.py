@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import asyncio
 import unittest
 import zipfile
 
@@ -286,6 +287,11 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
             {'tag': 'PRODUCT', 'type': 'MaterialStream'}, {'tag': 'Q-101', 'type': 'EnergyStream'}],
             'connections': [{'source': 'FEED', 'target': 'HT-101'}, {'source': 'HT-101', 'target': 'PRODUCT'},
                             {'source': 'Q-101', 'target': 'HT-101', 'target_port': 1}]}
+        names={t.name for t in (await self.session.list_tools()).tools}
+        self.assertTrue({'chem_dwsim_study','chem_dwsim_publish'}<=names)
+        checked=await self.call('chem_dwsim',project_id=project_id,request={'action':'check','model':model})
+        self.assertIsNone(checked['calculationId']);self.assertFalse(checked['result']['solved'])
+        self.assertTrue(checked['result']['preflight']['ready_to_solve'])
         simulated = await self.call('chem_dwsim', project_id=project_id, request={'action': 'create', 'model': model})
         self.assertTrue(simulated['result']['solved'], simulated)
         self.assertTrue(simulated['result']['validation']['passed'])
@@ -305,6 +311,25 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         record = await self.call('chem_calculations', project_id=project_id, calculation_id=updated['calculationId'])
         self.assertEqual(record['result']['version'], simulated['result']['version'])
         self.assertEqual(len((await self.call('chem_calculations', project_id=project_id))['calculations']), 2)
+        study=await self.call('chem_dwsim_study',project_id=project_id,request=dict(action='start',flowsheet_path=str(path),
+            cases=[dict(key='normal'),dict(key='hot',updates=[dict(tag='HT-101',parameters={'OutletTemperature':360})])],
+            metrics=[dict(key='T',path='/streams/@PRODUCT/temperature_k',unit='K')]))
+        job=study['study']
+        for _ in range(90):
+            job=(await self.call('chem_dwsim_study',project_id=project_id,request=dict(action='status',job_id=job['job_id'])))['study']
+            if job['status']!='running':break
+            await asyncio.sleep(.5)
+        self.assertEqual(job['status'],'completed',job)
+        published=await self.call('chem_dwsim_publish',project_id=project_id,request=dict(calculation_id=job['cases'][1]['calculation_id'],case='hot',
+            objects=[dict(kind='equipment',key='HT-101',title='加热器',expected_revision=0,quantities=[dict(key='T',path='/streams/@PRODUCT/temperature_k',
+                unit='degC',conditions='hot 工况出口',rationale='接口回归，用于操作温度')])]))
+        self.assertEqual(published['objects'][0]['revision'],1)
+        engineering=(await self.call('chem_project',project_id=project_id))['project']['objects']['equipment/HT-101']
+        self.assertAlmostEqual(engineering['quantities'][0]['value'],86.85)
+        conflict=await self.session.call_tool('chem_dwsim_publish',dict(project_id=project_id,request=dict(
+            calculation_id=job['cases'][0]['calculation_id'],case='normal',objects=[dict(kind='equipment',key='HT-101',title='加热器',expected_revision=0,
+            quantities=[dict(key='T',path='/streams/@PRODUCT/temperature_k',unit='K',conditions='normal',rationale='故意版本冲突')])])) )
+        self.assertTrue(conflict.isError);self.assertIn('409',conflict.content[0].text)
 
     @connected
     async def test_shared_references_text_images_history_and_pinned_use(self):

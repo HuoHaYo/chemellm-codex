@@ -31,6 +31,37 @@ from kernel import server  # noqa: E402
 from app.dwsim import DwsimInput  # noqa: E402
 
 
+class RunnerFingerprintTests(unittest.TestCase):
+    def test_content_check_survives_extraction_and_line_endings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            runner = folder / 'DwsimRunner.exe'
+            source = folder / 'Runner.cs'
+            runner.write_bytes(b'compiled-runner-fixture')
+            source.write_bytes(b'class Runner {}\n')
+            manifest = {'schema_version': 1, 'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
+                        'sources': {source.name: hashlib.sha256(source.read_bytes()).hexdigest()}}
+            runner.with_suffix('.build.json').write_text(json.dumps(manifest), encoding='utf-8')
+            with patch.object(server.dwsim_bridge, 'RUNNER', runner):
+                os.utime(runner, (1, 1))
+                source.write_bytes(b'class Runner {}\r\n')
+                self.assertFalse(server.dwsim_bridge.runner_needs_build())
+                source.write_bytes(b'class Changed {}\n')
+                self.assertTrue(server.dwsim_bridge.runner_needs_build())
+                source.write_bytes(b'class Runner {}\n')
+                runner.write_bytes(b'changed-runner')
+                self.assertTrue(server.dwsim_bridge.runner_needs_build())
+
+    def test_missing_or_invalid_manifest_requires_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runner = Path(temporary) / 'DwsimRunner.exe'
+            runner.write_bytes(b'compiled-runner-fixture')
+            with patch.object(server.dwsim_bridge, 'RUNNER', runner):
+                self.assertTrue(server.dwsim_bridge.runner_needs_build())
+                runner.with_suffix('.build.json').write_text('invalid-json')
+                self.assertTrue(server.dwsim_bridge.runner_needs_build())
+
+
 def mixer_model():
     return {'compounds': ['Water'], 'property_package': 'Steam Tables (IAPWS-IF97)', 'objects': [
         {'tag': 'COLD', 'type': 'MaterialStream', 'x': 50, 'y': 50, 'temperature_k': 300,

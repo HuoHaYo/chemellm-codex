@@ -10,8 +10,26 @@ $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 if (-not (Test-Path $src)) { throw "missing $src" }
 if (-not (Test-Path $csc)) { throw "csc.exe not found: $csc" }
-& $csc /nologo /platform:x64 /reference:System.Web.Extensions.dll /out:$exe $src
+$sources = @(Get-ChildItem -LiteralPath $outDir -Filter *.cs | ForEach-Object { $_.FullName })
+& $csc /nologo /platform:x64 /reference:System.Web.Extensions.dll /out:$exe $sources
 if ($LASTEXITCODE -ne 0) { throw "csc failed: $LASTEXITCODE" }
+
+$sourceHashes = [ordered]@{}
+foreach ($source in ($sources | Sort-Object)) {
+    $bytes = [IO.File]::ReadAllBytes($source)
+    $normalized = [Text.Encoding]::UTF8.GetString($bytes).Replace("`r`n", "`n")
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($normalized))
+        $sourceHashes[[IO.Path]::GetFileName($source)] = ([BitConverter]::ToString($digest)).Replace('-', '').ToLowerInvariant()
+    } finally { $hasher.Dispose() }
+}
+$fingerprint = [ordered]@{
+    schema_version = 1
+    runner_sha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+    sources = $sourceHashes
+}
+[IO.File]::WriteAllText((Join-Path $outDir 'DwsimRunner.build.json'), ($fingerprint | ConvertTo-Json -Depth 4) + "`n", (New-Object Text.UTF8Encoding($false)))
 
 $dwsim = if ($env:DWSIM_HOME) { $env:DWSIM_HOME } else { Join-Path $env:LOCALAPPDATA "DWSIM" }
 $config = Join-Path $dwsim "DWSIM.Automation.dll.config"

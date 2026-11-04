@@ -10,6 +10,7 @@ data/
 .chem/
 runtime/
 output/
+.playwright-cli/
 standards/
 *.log
 .env

@@ -9,13 +9,13 @@ using System.Reflection;
 using System.Text;
 using System.Web.Script.Serialization;
 
-class DwsimRunner
+partial class DwsimRunner
 {
     static string Home;
     static JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024 };
     static string[] Creatable = { "MaterialStream", "EnergyStream", "Mixer", "Splitter", "Heater", "Cooler",
         "Pump", "Compressor", "Expander", "Valve", "Vessel", "Tank", "HeatExchanger", "ShortcutColumn",
-        "DistillationColumn", "AbsorptionColumn", "ReboiledAbsorber", "RefluxedAbsorber", "ComponentSeparator", "OT_Recycle" };
+        "DistillationColumn", "AbsorptionColumn", "ReboiledAbsorber", "RefluxedAbsorber", "ComponentSeparator", "OT_Recycle", "RCT_Conversion", "RCT_Equilibrium" };
 
     static Assembly Resolve(object sender, ResolveEventArgs args)
     {
@@ -50,7 +50,9 @@ class DwsimRunner
     {
         if (obj == null) return null;
         var p = Property(obj, name);
-        return p == null ? null : p.GetValue(obj, null);
+        if(p!=null) return p.GetValue(obj,null);
+        for(Type t=obj.GetType();t!=null;t=t.BaseType) {var f=t.GetField(name,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.DeclaredOnly);if(f!=null)return f.GetValue(obj);}
+        return null;
     }
     static object ConvertArg(object value, Type type)
     {
@@ -107,7 +109,7 @@ class DwsimRunner
             Type t = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
             string space = p.DeclaringType.Namespace ?? "";
             if (!p.CanRead || !p.CanWrite || p.GetIndexParameters().Length != 0 ||
-                !(space.StartsWith("DWSIM.UnitOperations.UnitOperations") || space.StartsWith("DWSIM.UnitOperations.Streams")) ||
+                !space.StartsWith("DWSIM.UnitOperations.") ||
                 !(t.IsEnum || t == typeof(double) || t == typeof(int) || t == typeof(bool))) continue;
             try { result.Add(Dict("name", p.Name, "value", t.IsEnum ? Text(p.GetValue(obj, null)) : p.GetValue(obj, null),
                 "type", t.Name, "choices", t.IsEnum ? Enum.GetNames(t) : new string[0])); }
@@ -149,6 +151,10 @@ class DwsimRunner
     }
     static void Apply(object sim, object obj, Dictionary<string, object> spec)
     {
+        if(Value(spec,"spec",null)==null && (Map(Value(spec,"parameters",Dict())).Count>0 || Map(Value(spec,"properties",Dict())).Count>0)){
+            string annotation=Text(Get(obj,"Annotation"));int marker=annotation.IndexOf(Prefix);if(marker>=0)Set(obj,"Annotation",annotation.Substring(0,marker));
+        }
+        if(Value(spec,"property_package",null)!=null) Set(obj,"PropertyPackage",Package(sim,Text(spec["property_package"])));
         foreach (string key in new string[] { "temperature_k", "pressure_pa", "mass_flow_kg_s" })
             if (Value(spec, key, null) != null)
                 Call(obj, key == "temperature_k" ? "SetTemperature" : key == "pressure_pa" ? "SetPressure" : "SetMassFlow",
@@ -184,11 +190,51 @@ class DwsimRunner
         if (Array.IndexOf(Creatable, type) < 0) throw new ArgumentException("Unsupported creation ObjectType: " + type);
         return Call(sim, "AddObject", type, x, y, tag);
     }
+    static List<object> Connections(object sim)
+    {
+        var result = new List<object>(); var seen = new HashSet<string>();
+        foreach (DictionaryEntry entry in Objects(sim))
+        {
+            object go = Get(entry.Value, "GraphicObject"); var ports = new List<object>();
+            foreach (string group in new[] { "InputConnectors", "OutputConnectors" })
+                if (Get(go, group) is IEnumerable) foreach (object port in (IEnumerable)Get(go, group)) ports.Add(port);
+            ports.Add(Get(go, "EnergyConnector"));
+            foreach (object port in ports)
+            {
+                if (port == null || !Object.Equals(Get(port, "IsAttached"), true)) continue;
+                object connector = Get(port, "AttachedConnector");
+                string source = Text(Get(Get(connector, "AttachedFrom"), "Tag")), target = Text(Get(Get(connector, "AttachedTo"), "Tag"));
+                string key = source+"|"+target;
+                if (source != "" && target != "" && seen.Add(key)) result.Add(Dict("source",source,"target",target,
+                    "source_port",Get(connector,"AttachedFromConnectorIndex"),"target_port",Get(connector,"AttachedToConnectorIndex")));
+            }
+        }
+        return result;
+    }
+    static object NetEnergy(object obj)
+    {
+        string type = obj.GetType().Name;
+        if (Array.IndexOf(new[]{"Mixer","Splitter","Valve","Recycle","Tank"},type)>=0) return 0.0;
+        // An isothermal component separator has an implied separation heat.
+        // DWSIM's EnergyImb is inlet minus outlet, positive for heat removal.
+        // Read that native field; do not assume an adiabatic separator.
+        if(type=="ComponentSeparator") { var q=Get(obj,"EnergyImb"); return q==null?null:(object)(-Convert.ToDouble(q)); }
+        if(type=="HeatExchanger") return -Convert.ToDouble(Get(obj,"HeatLoss"));
+        if(type=="Heater" || type=="Pump" || type=="Compressor") return Get(obj,"HeatDuty");
+        if(type=="Cooler" || type=="Expander") { var q=Get(obj,"HeatDuty"); return q==null?null:(object)(-Convert.ToDouble(q)); }
+        // DWSIM column duties are positive for removal; the reboiler duty is negative.
+        if(type=="DistillationColumn") return -Convert.ToDouble(Get(obj,"ReboilerDuty"))-Convert.ToDouble(Get(obj,"CondenserDuty"));
+        if(type=="ShortcutColumn") return Convert.ToDouble(Get(obj,"m_Qb"))-Convert.ToDouble(Get(obj,"m_Qc"));
+        if(type=="Vessel" || type.StartsWith("Reactor")) return Get(obj,"DeltaQ");
+        return null;
+    }
     static void Build(object sim, Dictionary<string, object> model)
     {
         foreach (object compound in (IEnumerable)model["compounds"]) Call(sim, "AddCompound", Text(compound));
         object pp = Call(sim, "CreateAndAddPropertyPackage", Text(model["property_package"]));
         if (pp == null) throw new ArgumentException("Property package not available");
+        ConfigurePackages(sim,(IEnumerable)Value(model,"property_packages",new object[0]));
+        ConfigureReactions(sim,model);
         foreach (object value in (IEnumerable)model["objects"])
         {
             var spec = Map(value);
@@ -200,9 +246,14 @@ class DwsimRunner
         foreach (object value in (IEnumerable)model["connections"])
         {
             var connection = Map(value);
-            Call(sim, "ConnectObjects", Get(Find(sim, Text(connection["source"])), "GraphicObject"),
-                Get(Find(sim, Text(connection["target"])), "GraphicObject"), connection["source_port"], connection["target_port"]);
+            try {
+                if(ColumnConnection(sim,model,connection))continue;
+                Call(sim, "ConnectObjects", Get(Find(sim, Text(connection["source"])), "GraphicObject"),
+                    Get(Find(sim, Text(connection["target"])), "GraphicObject"), connection["source_port"], connection["target_port"]);
+            } catch(Exception ex) { throw new ArgumentException("Connection "+Text(connection["source"])+"["+Text(connection["source_port"])+"] -> "+
+                Text(connection["target"])+"["+Text(connection["target_port"])+"]: "+ex.GetBaseException().Message); }
         }
+        foreach(object value in (IEnumerable)model["objects"]) {var spec=Map(value); Advanced(sim,Find(sim,Text(spec["tag"])),spec);}
     }
     static Dictionary<string, object> Read(object sim, bool inspect, HashSet<string> selected)
     {
@@ -213,17 +264,40 @@ class DwsimRunner
             object obj = entry.Value; string type = obj.GetType().Name;
             if (inspect && selected.Count > 0 && !selected.Contains(Tag(obj)) && !selected.Contains(Text(Get(obj, "Name")))) continue;
             var item = Dict("tag", Tag(obj), "name", Text(Get(obj, "Name")), "type", type,
-                "calculated", Get(Get(obj, "GraphicObject"), "Calculated"));
+                "calculated", Get(Get(obj, "GraphicObject"), "Calculated"), "error", Text(Get(obj,"ErrorMessage")));
+            item["property_package_id"]=Text(Get(Get(obj,"PropertyPackage"),"UniqueID"));
             if (type == "MaterialStream")
             {
                 item["temperature_k"] = Optional(obj, "GetTemperature"); item["pressure_pa"] = Optional(obj, "GetPressure");
                 item["mass_flow_kg_s"] = Optional(obj, "GetMassFlow"); item["compounds"] = Optional(obj, "GetCompoundNames");
                 item["mole_fractions"] = Optional(obj, "GetOverallComposition");
+                item["molar_flow_mol_s"] = Optional(obj,"GetMolarFlow");
+                item["specific_enthalpy_kj_kg"] = Optional(obj,"GetMassEnthalpy");
+                if(item["specific_enthalpy_kj_kg"]!=null && item["mass_flow_kg_s"]!=null)
+                    item["enthalpy_flow_kw"] = Convert.ToDouble(item["specific_enthalpy_kj_kg"])*Convert.ToDouble(item["mass_flow_kg_s"]);
+                var massFlows=Dict(); var elementFlows=Dict(); var mw=Dict(); double formation=0; bool formationKnown=true,elementKnown=true;
+                foreach (string compound in (string[])item["compounds"])
+                {
+                    double flow=Convert.ToDouble(Call(obj,"GetCompoundMassFlow",compound)); massFlows[compound]=flow;
+                    object cp=((IDictionary)Get(sim,"SelectedCompounds"))[compound];
+                    double weight=Convert.ToDouble(Get(cp,"Molar_Weight")); mw[compound]=weight;
+                    var elements=Get(cp,"Elements") as IDictionary;
+                    if(elements==null || elements.Count==0)elementKnown=false;
+                    if(elements!=null) foreach(DictionaryEntry el in elements) {
+                        string symbol=Text(el.Key); elementFlows[symbol]=(elementFlows.ContainsKey(symbol)?Convert.ToDouble(elementFlows[symbol]):0)+flow/weight*1000*Convert.ToDouble(el.Value); }
+                    var hf=Get(cp,"IG_Enthalpy_of_Formation_25C");
+                    if(hf==null) formationKnown=false; else formation+=flow*Convert.ToDouble(hf);
+                }
+                item["component_mass_flows_kg_s"]=massFlows; item["molecular_weights_g_mol"]=mw; item["element_flows_mol_s"]=elementFlows;item["element_data_complete"]=elementKnown;
+                if(formationKnown && item.ContainsKey("enthalpy_flow_kw")) item["total_enthalpy_flow_kw"]=Convert.ToDouble(item["enthalpy_flow_kw"])+formation;
                 if (!inspect)
                 {
                     bool valid = true;
+                    double massFlow=item["mass_flow_kg_s"]==null?Double.NaN:Convert.ToDouble(item["mass_flow_kg_s"]);
+                    bool zeroFlow=massFlow==0;
                     foreach (string key in new string[] { "temperature_k", "pressure_pa", "mass_flow_kg_s" })
                     {
+                        if(zeroFlow && key!="mass_flow_kg_s")continue;
                         double number = item[key] == null ? Double.NaN : Convert.ToDouble(item[key]);
                         if (Double.IsNaN(number) || Double.IsInfinity(number) || (key == "mass_flow_kg_s" ? number < 0 : number <= 0)) valid = false;
                     }
@@ -236,17 +310,20 @@ class DwsimRunner
                         if (Double.IsNaN(fraction) || Double.IsInfinity(fraction) || fraction < -1e-10 || fraction > 1+1e-10) valid = false;
                         sum += fraction;
                     }
-                    if (Math.Abs(sum-1) > 1e-6) valid = false;
+                    if (!zeroFlow && Math.Abs(sum-1) > 1e-6) valid = false;
                     if (!valid) errors.Add("Incomplete or invalid material stream result: " + Tag(obj));
                 }
                 streams.Add(item);
             }
             else if (type == "EnergyStream") { item["energy_flow_kw"] = Get(obj, "EnergyFlow"); energy.Add(item); }
-            else { if (!inspect) item["properties"] = Properties(sim, obj); units.Add(item); }
+            else { if (!inspect) item["properties"] = Properties(sim, obj);
+                item["net_energy_input_kw"]=NetEnergy(obj); item["reactive"]=type.StartsWith("Reactor");
+                item["settings"]=Settings(obj); item["diagnostics"]=Diagnostics(obj); units.Add(item); }
             if (inspect)
             {
                 if (selected.Count > 0) item["properties"] = Properties(sim, obj);
                 item["parameters"] = Parameters(obj);
+                item["settings"]=Settings(obj); item["diagnostics"]=Diagnostics(obj);
                 item["input_ports"] = Ports(obj, "InputConnectors"); item["output_ports"] = Ports(obj, "OutputConnectors");
                 var ec = Get(Get(obj, "GraphicObject"), "EnergyConnector");
                 item["energy_connector"] = ec == null ? null : Dict("attached", Get(ec, "IsAttached"), "type", Text(Get(ec, "Type")));
@@ -254,7 +331,8 @@ class DwsimRunner
             objects.Add(item);
         }
         foreach (DictionaryEntry entry in (IDictionary)Get(sim, "PropertyPackages"))
-            packages.Add(Dict("id", Text(entry.Key), "name", Text(Get(entry.Value, "ComponentName")), "type", entry.Value.GetType().Name));
+            packages.Add(Dict("id", Text(entry.Key), "key",Text(Get(entry.Value,"Tag")),"name", Text(Get(entry.Value, "ComponentName")), "type", entry.Value.GetType().Name,
+                             "interactions",Interactions(sim,entry.Value)));
         return Dict("solved", Convert.ToBoolean(Get(sim, "Solved")), "error", Text(Get(sim, "ErrorMessage")),
             "stream_count", streams.Count, "unit_count", units.Count, "streams", streams, "unit_operations", units,
             "energy_streams", inspect ? null : energy, "objects", inspect ? objects : null, "property_packages", packages, "result_errors", errors,
@@ -284,7 +362,7 @@ class DwsimRunner
             var request = Map(Json.DeserializeObject(File.ReadAllText(Path.GetFullPath(args[0]), Encoding.UTF8)));
             string action = Text(request["action"]);
             object automation = Activator.CreateInstance(Assembly.LoadFrom(Path.Combine(Home, "DWSIM.Automation.dll")).GetType("DWSIM.Automation.Automation3"));
-            object sim = action == "create" || action == "catalog" ? Call(automation, "CreateFlowsheet") : Call(automation, "LoadFlowsheet", Text(request["flowsheet_path"]));
+            object sim = action == "create" || action == "catalog" || action == "check" && Value(request,"model",null)!=null ? Call(automation, "CreateFlowsheet") : Call(automation, "LoadFlowsheet", Text(request["flowsheet_path"]));
             Dictionary<string, object> result;
             if (action == "catalog")
             {
@@ -294,20 +372,36 @@ class DwsimRunner
             }
             else
             {
-                if (action == "create") Build(sim, Map(request["model"]));
-                foreach (object spec in (IEnumerable)Value(request, "updates", new object[0])) Apply(sim, Find(sim, Text(Map(spec)["tag"])), Map(spec));
+                if (action == "create" || action == "check" && Value(request,"model",null)!=null) Build(sim, Map(request["model"]));
+                ConfigurePackages(sim,(IEnumerable)Value(request,"property_packages",new object[0]));
+                var initialization=new List<object>();
+                foreach(object step in (IEnumerable)Value(request,"initialization",new object[0])) {
+                    foreach(object spec in (IEnumerable)step) {var s=Map(spec);var o=Find(sim,Text(s["tag"]));Apply(sim,o,s);Advanced(sim,o,s);}
+                    var errors=new List<string>();try{var returned=Call(automation,"CalculateFlowsheet2",sim) as IEnumerable;
+                        if(returned!=null)foreach(object e in returned)errors.Add(e is Exception?((Exception)e).GetBaseException().Message:Text(e));
+                    }catch(TargetInvocationException e){errors.Add(e.GetBaseException().Message);}
+                    var initialized=Read(sim,false,new HashSet<string>());initialized["solver_errors"]=errors;initialized["connections"]=Connections(sim);initialization.Add(initialized);
+                }
+                foreach (object spec in (IEnumerable)Value(request, "updates", new object[0])) {var s=Map(spec);var o=Find(sim,Text(s["tag"]));Apply(sim,o,s);Advanced(sim,o,s);}
                 var solverErrors = new List<string>();
-                if (action != "inspect")
+                if (action != "inspect" && action != "check")
                 {
-                    try { Call(automation, "CalculateFlowsheet2", sim); }
+                    // Persist configured input before solving, including when the process times out.
+                    Call(automation,"SaveFlowsheet",sim,Text(request["save_path"]),true);
+                    try { var returned=Call(automation, "CalculateFlowsheet2", sim) as IEnumerable;
+                        if(returned!=null)foreach(object error in returned)solverErrors.Add(error is Exception?((Exception)error).GetBaseException().Message:Text(error)); }
                     catch (TargetInvocationException ex) { solverErrors.Add(ex.GetBaseException().Message); }
                 }
                 var selected = new HashSet<string>();
                 foreach (object tag in (IEnumerable)Value(request, "object_tags", new object[0])) { Find(sim, Text(tag)); selected.Add(Text(tag)); }
-                result = Read(sim, action == "inspect", selected); result["solver_errors"] = solverErrors;
-                if (action == "inspect") { result["streams"] = null; result["unit_operations"] = null; }
+                result = Read(sim, action == "inspect" || action == "check", selected); result["solver_errors"] = solverErrors;
+                result["connections"]=Connections(sim);
+                result["initialization"]=initialization;
+                result["configuration_metadata"]=ConfigurationMetadata(sim);
+                result["reactions"]=ReactionData(sim);
+                if (action == "inspect" || action == "check") { result["streams"] = null; result["unit_operations"] = null; }
                 if (solverErrors.Count > 0) result["solved"] = false;
-                if (action != "inspect")
+                if (action != "inspect" && action != "check")
                 {
                     string save = Text(request["save_path"]);
                     Call(automation, "SaveFlowsheet", sim, save, true); result["saved_flowsheet"] = save;

@@ -71,6 +71,9 @@ from app.catalog import TOOLS  # noqa: E402
 from app.pricing import PriceBook, PriceWrite, PriceConflict  # noqa: E402
 from app.references import ReferenceLibrary, ReferenceImport, ReferenceSave, ReferenceUse, ReferenceConflict  # noqa: E402
 from app.dwsim import DwsimInput  # noqa: E402
+from app.dwsim_validation import preflight as dwsim_preflight, validate as dwsim_validate, model_preflight  # noqa: E402
+from app.dwsim_workflows import StudyInput, PublishInput, metric_value, native_unit  # noqa: E402
+from kernel.dwsim_studies import Studies, ProjectBusy  # noqa: E402
 from app.external_tools import find_freecad, find_libreoffice  # noqa: E402
 from kernel.dependencies import DependencyManager, DependencyPrepare, DependencyInstall  # noqa: E402
 
@@ -196,7 +199,9 @@ def load_project(project_id: str) -> dict:
     with _write_lock:
         project = json.loads(path.read_text(encoding="utf-8"))
         if (project_dir(project_id) / 'prices').exists():
-            sync_prices(project)
+            try:
+                with DWSIM_STUDIES.guard(project_id):sync_prices(project)
+            except ProjectBusy as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
         return project
 
 
@@ -375,11 +380,14 @@ def _truncate_result(result: Any) -> dict:
     if len(encoded) <= MAX_TOOL_RESULT:
         return {"result": result, "truncated": False}
     keys = list(result.keys())[:20] if isinstance(result, dict) else []
+    if isinstance(result,dict) and result.get('engine')=='DWSIM':
+        keys=['engine','version','action','solved','error','solver_errors','result_errors','validation','preflight',
+              'inspection_path','saved_flowsheet','input_source','runner_sha256','basis_keys','run_context','warnings']
     return {
-        "result": {k: result[k] for k in keys if k not in {"stages", "streams", "profiles"}},
+        "result": {k: result[k] for k in keys if k in result and k not in {"stages", "streams", "profiles"}},
         "truncated": True,
         "resultBytes": len(encoded),
-        "note": "结果过大，已截断；完整结果可用 chem_calc/read 或面板查看。",
+        "note": "结果过大，已截断；用 chem_calculations 读取完整计算，检查结果读取 inspection_path。",
     }
 
 
@@ -445,6 +453,17 @@ class ReviewIn(BaseModel):
     note: str = ""
 
 
+def project_write(function):
+    """Protect complete read/modify/write cycles, also when called without HTTP."""
+    from functools import wraps
+    @wraps(function)
+    def guarded(project_id,*args,**kwargs):
+        try:
+            with DWSIM_STUDIES.guard(project_id):return function(project_id,*args,**kwargs)
+        except ProjectBusy as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
+    return guarded
+
+
 # --------------------------------------------------------------------------- #
 # auth / health / catalog
 # --------------------------------------------------------------------------- #
@@ -490,7 +509,7 @@ def dwsim_status():
 def dependency_operation(function, *args):
     try:
         return function(*args)
-    except PermissionError as exc:
+    except (PermissionError,ProjectBusy) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ValueError, KeyError, OSError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -552,6 +571,7 @@ def reference_save(reference_id: str, p: ReferenceSave):
 
 
 @app.post('/v1/projects/{project_id}/references')
+@project_write
 def reference_use(project_id: str, p: ReferenceUse):
     with _write_lock:
         project = load_project(project_id)
@@ -614,6 +634,7 @@ def get_project(project_id: str):
 
 
 @app.get('/v1/projects/{project_id}/prices')
+@project_write
 def list_prices(project_id: str):
     with _write_lock:
         project = load_project(project_id)
@@ -621,6 +642,7 @@ def list_prices(project_id: str):
 
 
 @app.post('/v1/projects/{project_id}/prices')
+@project_write
 def save_prices(project_id: str, p: PriceWrite):
     with _write_lock:
         project = load_project(project_id)
@@ -634,6 +656,7 @@ def save_prices(project_id: str, p: PriceWrite):
 
 
 @app.get('/v1/projects/{project_id}/prices/history')
+@project_write
 def price_history(project_id: str, key: str | None = None, offset: int = 0, limit: int = 50):
     if offset < 0 or not 1 <= limit <= 100:
         raise HTTPException(status_code=422, detail='offset 须非负，limit 须在 1–100 之间')
@@ -644,6 +667,7 @@ def price_history(project_id: str, key: str | None = None, offset: int = 0, limi
 
 
 @app.delete("/v1/projects/{project_id}")
+@project_write
 def delete_project(project_id: str):
     """Delete a local project: state, snapshot, calculation rows and artifact files."""
     project = load_project(project_id)
@@ -682,6 +706,7 @@ def delete_project(project_id: str):
 
 
 @app.post("/v1/projects/{project_id}/requirements")
+@project_write
 def save_requirements(project_id: str, p: RequirementsIn):
     project = load_project(project_id)
     existing = {item["code"]: item for item in project.get("requirements") or []}
@@ -695,6 +720,7 @@ def save_requirements(project_id: str, p: RequirementsIn):
 
 
 @app.post("/v1/projects/{project_id}/plan")
+@project_write
 def save_plan(project_id: str, p: PlanIn):
     project = load_project(project_id)
     plan = project.setdefault("plan", {"objects": [], "deliverables": []})
@@ -713,6 +739,7 @@ def save_plan(project_id: str, p: PlanIn):
 
 
 @app.post("/v1/projects/{project_id}/objects")
+@project_write
 def save_object(project_id: str, p: ObjectIn):
     project = load_project(project_id)
     objects = project.setdefault("objects", {})
@@ -1041,7 +1068,7 @@ def run_dwsim(project: dict, args: dict) -> dict:
             dwsim_bridge.validate_flowsheet(source)
             source_meta = {'path': str(source), 'sha256': hashlib.sha256(source.read_bytes()).hexdigest()}
         ident = uid()
-        folder = KERNEL_DATA/'artifacts'/ident if request.action != 'inspect' else KERNEL_DATA/'dwsim-inspect'/ident
+        folder = KERNEL_DATA/'dwsim-inspect'/ident if request.action in {'inspect', 'check'} else KERNEL_DATA/'artifacts'/ident
         folder.mkdir(parents=True, exist_ok=True)
         input_copy = None
         if source:
@@ -1051,9 +1078,29 @@ def run_dwsim(project: dict, args: dict) -> dict:
                 raise ValueError('原始流程在复制期间发生修改，请保存后重试')
             request = request.model_copy(update={'flowsheet_path': str(input_copy)})
         native_path = folder/'DWSIM流程.dwxmz'
-        result = dwsim_bridge.invoke(request, folder/'work', save_path=native_path if request.action != 'inspect' else None)
+        missing_basis = [key for key in request.basis_keys if key not in (project.get('objects') or {})]
+        if missing_basis:
+            raise ValueError('关联的设计依据不存在：'+', '.join(missing_basis))
+        initial_checks=model_preflight(request.model) if request.model else []
+        failures=[c for c in initial_checks if c['passed'] is False]
+        if failures and request.action!='check':raise ValueError('建模前检查失败：'+json.dumps(failures,ensure_ascii=False))
+        if failures:
+            result={'engine':'DWSIM','action':'check','solved':False,'objects':[], 'connections':[],
+                    'note':'输入存在明确缺项，尚未构建原生模型'}
+        else:
+            result = dwsim_bridge.invoke(request, folder/'work', save_path=native_path if request.action not in {'inspect', 'check'} else None)
         result['input_source'] = source_meta
         result['executed_at'] = _utc()
+        if request.action == 'check':
+            result['preflight'] = dwsim_preflight(result, request.basis_keys)
+            result['preflight']['checks'].extend(initial_checks)
+            result['preflight']['ready_to_solve']=not any(c['passed'] is False for c in result['preflight']['checks'])
+            result['solved'] = False
+            result['note'] = '只检查，未求解、未覆盖输入文件，不是正式计算记录。'
+            full_path = folder/'DWSIM预检查.json'
+            result['inspection_path'] = str(full_path)
+            full_path.write_text(json.dumps(result,ensure_ascii=False,allow_nan=False,indent=2),encoding='utf-8')
+            return result
         if request.action == 'inspect':
             inspection_path = folder/'DWSIM检查.json'
             inspection_path.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2), encoding='utf-8')
@@ -1074,15 +1121,18 @@ def run_dwsim(project: dict, args: dict) -> dict:
             raise ValueError('DWSIM 未保存原生模型，不能宣称仿真已完整交付；日志：'+str(folder/'work'))
         if native_path.stat().st_size > MAX_INTAKE:
             raise ValueError('DWSIM 原生输出超过25 MiB，已保留文件：'+str(native_path))
-        passed = bool(result.get('solved')) and not result.get('solver_errors') and not result.get('result_errors')
+        result['validation'] = dwsim_validate(result, request.validation_options)
+        passed = result['validation']['passed']
         result['model'] = 'DWSIM Automation3 steady-state'
-        result['validation'] = {'passed': passed, 'scope': 'DWSIM 求解收敛与结果读取；不代表物性适用性、工程标准符合性或专业审核'}
+        result['basis_keys'] = request.basis_keys
+        result['basis_revisions']={key:project['objects'][key].get('revision') for key in request.basis_keys}
+        result['run_context'] = request.run_context
         result['warnings'] = [
             '物性包、二元参数及单元设置须结合体系核对；本接口执行稳态求解。',
             '物流温度 K、压力 Pa、质量流量 kg/s、组成为摩尔分数；热流 kW，其他属性单位随字段返回。',
         ]
-        if not passed:
-            result['warnings'].insert(0, 'DWSIM 未成功收敛或结果不完整；保留失败模型和诊断，不能用于设计结论。')
+        if passed is not True:
+            result['warnings'].insert(0, '独立校核未通过或信息不足；保留模型和诊断，不能用于设计结论。引擎状态见 solved。')
         input_path, json_path, csv_path = folder/'DWSIM输入.json', folder/'DWSIM结果.json', folder/'DWSIM物流表.csv'
         input_path.write_text(json.dumps({'request': args, 'source': source_meta}, ensure_ascii=False, indent=2), encoding='utf-8')
         json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8')
@@ -1194,7 +1244,37 @@ def export_relief_sizing(project: dict, args: dict) -> dict:
 
 
 def export_equipment_datasheet(project: dict, args: dict) -> dict:
-    payload = dict(args or {})
+    from copy import deepcopy
+    from app.dwsim_workflows import convert_value
+    payload = deepcopy(args or {})
+    sources=[]
+    field_units={'operating_temperature_c':'degC','operating_pressure_mpa':'MPa','heat_duty_kw':'kW',
+                 'power_kw':'kW','area_m2':'m^2','flow_m3_h':'m^3/h','head_m':'m','pressure_ratio':'dimensionless'}
+    for item in payload.get('items',[]):
+        link=item.pop('project_object',None)
+        if not link:continue
+        obj=(project.get('objects') or {}).get(link.get('key'))
+        if not obj or obj['revision']!=link.get('expected_revision'):
+            raise HTTPException(status_code=409,detail='数据表工程对象版本不存在或已变化')
+        quantities={q['key']:q for q in obj.get('quantities',[])}
+        for field,key in link.get('fields',{}).items():
+            if field not in field_units or field in item:
+                raise HTTPException(status_code=422,detail='数据表字段不支持或与显式输入冲突：'+field)
+            q=quantities.get(key)
+            if not q or q.get('role') not in {'operating','simulation_load'} or not q.get('calculationId'):
+                raise HTTPException(status_code=422,detail='数据表须选用已发布的操作参数或模拟负荷')
+            value=convert_value(q['value'],q['unit'],field_units[field])
+            if field=='operating_pressure_mpa':
+                ambient=link.get('atmospheric_pressure_pa')
+                if not isinstance(ambient,(int,float)) or not 0<ambient<200000:
+                    raise HTTPException(status_code=422,detail='仿真压力为绝压；数据表表压需要显式 atmospheric_pressure_pa')
+                value-=ambient/1e6
+            item[field]=value
+            sources.append(dict(tag=item['tag'],field=field,object_key=link['key'],revision=obj['revision'],quantity=q,
+                                source=obj.get('attributes',{}).get('dwsim'),atmospheric_pressure_pa=link.get('atmospheric_pressure_pa')))
+        item['notes']=(item.get('notes','')+'；仿真操作条件来源：'+link['key']+' rev '+str(obj['revision'])+
+                       '；计算 '+str(obj.get('attributes',{}).get('dwsim',{}).get('calculationId'))+'。机械设计温压和裕量需另行确定。').lstrip('；')
+    payload['sources']=sources
     ident = uid()
     folder = KERNEL_DATA / "artifacts" / ident
     folder.mkdir(parents=True, exist_ok=True)
@@ -1399,7 +1479,13 @@ def export_cad_part(project: dict, args: dict) -> dict:
 
 
 @app.post("/v1/projects/{project_id}/execute")
+@project_write
 def execute_tool(project_id: str, p: ExecuteIn):
+    with DWSIM_STUDIES.guard(project_id):
+        return _execute_tool(project_id,p)
+
+
+def _execute_tool(project_id: str, p: ExecuteIn):
     project = load_project(project_id)
     if p.tool in {"ask_user", "acceptance"}:
         raise HTTPException(status_code=422, detail="该工具不在此入口执行")
@@ -1410,7 +1496,7 @@ def execute_tool(project_id: str, p: ExecuteIn):
             request = DwsimInput.model_validate(p.args)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)[:2000]) from exc
-        if request.action in {'status', 'catalog', 'inspect'}:
+        if request.action in {'status', 'catalog', 'inspect', 'check'}:
             result = run_dwsim(project, p.args)
             return {'ok': True, 'tool': p.tool, 'calculationId': None, 'artifacts': [], **_truncate_result(result)}
     dependency = {'dwsim': 'dwsim', 'export_freecad': 'freecad', 'cad_part': 'freecad',
@@ -1494,6 +1580,131 @@ def execute_tool(project_id: str, p: ExecuteIn):
     return response
 
 
+def _dwsim_source(raw):
+    path=Path(raw).expanduser()
+    path=(ROOT/path).resolve() if not path.is_absolute() else path.resolve()
+    home=dwsim_bridge.find_home()
+    roots=[ROOT.resolve(),DATA_ROOT.resolve()]+([(home/'samples').resolve()] if home else [])
+    if not any(path.is_relative_to(root) for root in roots):raise ValueError('基准模型路径不在允许目录内')
+    dwsim_bridge.validate_flowsheet(path)
+    return path
+
+
+def _dwsim_recover(project_id,study_id,case):
+    if study_id is None:
+        record=one('SELECT result FROM calculations WHERE project_id=? AND id=?',(project_id,case))
+        if not record:raise ValueError('工况计算记录不存在')
+        return json.loads(record['result'])
+    for record in rows("SELECT id,result,input,created_at FROM calculations WHERE project_id=? AND tool='dwsim' ORDER BY created_at DESC",(project_id,)):
+        full=json.loads(record['result']);context=full.get('run_context',{})
+        if context=={'study_id':study_id,'case':case}:
+            # Reconcile a crash between calculation commit and project-summary publication.
+            project=load_project(project_id)
+            if not any(c.get('calculationId')==record['id'] for c in project.get('calculations',[])):
+                artifacts=_normalize_artifacts(full,[])
+                project.setdefault('calculations',[]).append(dict(calculationId=record['id'],tool='dwsim',args=json.loads(record['input']),
+                    **_calc_summary('dwsim',full),createdAt=record['created_at'],recovered=True))
+                known={f.get('artifactId') for f in project.get('files',[])}
+                project.setdefault('files',[]).extend({**a,'origin':'generated','tool':'dwsim','createdAt':_utc()} for a in artifacts if a['artifactId'] not in known)
+                project['review']={};project['bundle']=None;save_project(project)
+            return record['id']
+    return None
+
+
+def _dwsim_register(project_id,files):
+    project=load_project(project_id);folder=KERNEL_DATA/'artifacts'/uid();folder.mkdir(parents=True)
+    records=[]
+    for source in files:
+        dest=folder/source.name;shutil.copyfile(source,dest)
+        record=artifact_record(project_id,dest,metadata={'source':'DWSIM study comparison'})
+        normalized=_normalize_artifacts({'artifacts':[record]},[])[0]
+        project.setdefault('files',[]).append({**normalized,'origin':'generated','tool':'dwsim_study','createdAt':_utc()})
+        records.append(normalized)
+    project['review']={};project['bundle']=None;save_project(project)
+    return records
+
+
+DWSIM_STUDIES=Studies(project_dir,lambda pid,p:execute_tool(pid,ExecuteIn(tool='dwsim',args=p.model_dump(mode='json'))),
+                      _dwsim_source,_dwsim_recover,_dwsim_register)
+
+
+@app.post('/v1/projects/{project_id}/dwsim/study')
+def dwsim_study(project_id:str,p:StudyInput):
+    if not project_file(project_id).is_file():raise HTTPException(status_code=404,detail='项目不存在')
+    if p.action in {'start','resume'}:_gate_check(json.loads(project_file(project_id).read_text(encoding='utf-8')),'dwsim')
+    return {'ok':True,'study':dependency_operation(DWSIM_STUDIES.call,project_id,p)}
+
+
+@app.post('/v1/projects/{project_id}/dwsim/publish')
+@project_write
+def dwsim_publish(project_id:str,p:PublishInput):
+    with DWSIM_STUDIES.guard(project_id):
+        return dependency_operation(_dwsim_publish,project_id,p)
+
+
+def _dwsim_publish(project_id,p):
+    from app.pricing import _atomic
+    project=load_project(project_id)
+    record=one("SELECT result FROM calculations WHERE project_id=? AND id=? AND tool='dwsim'",(project_id,p.calculation_id))
+    if not record:raise ValueError('本项目 DWSIM 计算记录不存在')
+    result=json.loads(record['result'])
+    if result.get('solved') is not True or result.get('validation',{}).get('passed') is not True:
+        raise ValueError('只有完整通过校核的结果可以发布')
+    if result.get('validation',{}).get('schema_version')!=1:
+        raise ValueError('旧记录没有当前独立校核版本；保留旧记录，请重新运行后发布')
+    prepared=[]
+    for mapping in p.objects:
+        storage_key=mapping.kind+'/'+mapping.key;previous=(project.get('objects') or {}).get(storage_key,{})
+        quantities=[]
+        for q in mapping.quantities:
+            if q.denominator_path:raise ValueError('工程量发布只接受直接结果，派生指标先建立计算记录')
+            value,path=metric_value(result,q)
+            quantities.append(dict(key=q.key,value=value,unit=q.unit,origin='calculation',calculationId=p.calculation_id,
+                resultPath=path,resultUnit=native_unit(result,path),conditions=q.conditions,rationale=q.rationale,role=q.origin,case=p.case))
+        attributes={**previous.get('attributes',{}),'dwsim':{'calculationId':p.calculation_id,'case':p.case,
+                    'input_source':result.get('input_source'),'runner_sha256':result.get('runner_sha256'),'version':result.get('version'),
+                    'native_models':[a for a in result.get('artifacts',[]) if a.get('name','').endswith(('.dwxmz','.dwxml'))],
+                    'result_sha256':hashlib.sha256(record['result'].encode('utf-8')).hexdigest()}}
+        combined={q['key']:q for q in previous.get('quantities',[])};combined.update({q['key']:q for q in quantities})
+        same=previous.get('title')==mapping.title and previous.get('quantities')==list(combined.values()) and previous.get('attributes')==attributes
+        if same:
+            prepared.append((storage_key,previous,False));continue
+        if previous.get('revision',0)!=mapping.expected_revision:raise HTTPException(status_code=409,detail='工程对象版本冲突：'+storage_key)
+        item=dict(kind=mapping.kind,key=mapping.key,title=mapping.title,quantities=list(combined.values()),attributes=attributes,
+                  dependsOn=previous.get('dependsOn',[]),revision=previous.get('revision',0)+1,updatedAt=_utc())
+        prepared.append((storage_key,item,True))
+    comparisons=[]
+    for ref in p.references:
+        calculated,path=metric_value(result,ref);difference=calculated-ref.value
+        tolerance=None if ref.absolute_tolerance is None and ref.relative_tolerance is None else (ref.absolute_tolerance or 0)+(ref.relative_tolerance or 0)*abs(ref.value)
+        if ref.artifact_id:
+            source=one('SELECT * FROM artifacts WHERE id=? AND project_id=?',(ref.artifact_id,project_id))
+            if not source:raise ValueError('参考原件不属于当前项目')
+        comparisons.append({**ref.model_dump(),'calculated':calculated,'difference':difference,
+            'relative_error':difference/abs(ref.value) if ref.value else None,'tolerance':tolerance,
+            'passed':None if tolerance is None else abs(difference)<=tolerance,'result_path':path})
+    folder=KERNEL_DATA/'artifacts'/uid();folder.mkdir(parents=True)
+    summary=dict(calculation_id=p.calculation_id,case=p.case,comparisons=comparisons,
+                 validation_gap='缺少独立参考数据，尚未验证模型精度' if not comparisons else '仅比较已提供数据点及条件，不代表专业审核',
+                 input_source=result.get('input_source'),runner_sha256=result.get('runner_sha256'))
+    _atomic(folder/'DWSIM设计联动.json',summary)
+    body=['# DWSIM 设计联动与数据对比','',f'计算记录：{p.calculation_id}；工况：{p.case}','',summary['validation_gap'],'',
+          '| 指标 | 参考值 | 计算值 | 单位 | 偏差 | 来源与条件 |','| --- | --- | --- | --- | --- | --- |']
+    for c in comparisons:body.append(f"| {c['key']} | {c['value']} | {c['calculated']} | {c['unit']} | {c['difference']} | {c['source']}；{c['conditions']} |")
+    body+=['','## 发布的工程量','']
+    for key,item,_ in prepared:
+        body.append('### '+key)
+        body += [f"- {q['key']}: {q['value']} {q['unit']}；{q['conditions']}；{q['rationale']}" for q in item['quantities'] if q.get('calculationId')==p.calculation_id]
+    (folder/'DWSIM设计联动.md').write_text('\n'.join(body),encoding='utf-8')
+    artifacts=[artifact_record(project_id,path,metadata={'source':'DWSIM engineering publication','calculation_id':p.calculation_id}) for path in folder.iterdir()]
+    normalized=_normalize_artifacts({'artifacts':artifacts},[])
+    for key,item,changed in prepared:project.setdefault('objects',{})[key]=item
+    project.setdefault('files',[]).extend({**a,'origin':'generated','tool':'dwsim_publish','createdAt':_utc()} for a in normalized)
+    project['review']={};project['bundle']=None;save_project(project)
+    return {'ok':True,'objects':[dict(key=key,revision=item['revision'],changed=changed) for key,item,changed in prepared],
+            'comparisons':comparisons,'artifacts':normalized,'validation_gap':summary['validation_gap']}
+
+
 @app.get("/v1/projects/{project_id}/calculations")
 def list_calculations(project_id: str):
     project = load_project(project_id)
@@ -1519,6 +1730,7 @@ def read_calculation(project_id: str, calculation_id: str):
 # intake / files
 # --------------------------------------------------------------------------- #
 @app.post("/v1/projects/{project_id}/intake")
+@project_write
 def intake(project_id: str, p: IntakeIn):
     project = load_project(project_id)
     source = Path(p.path)
@@ -1590,6 +1802,7 @@ def artifact_preview(artifact_id: str):
 # review / bundle
 # --------------------------------------------------------------------------- #
 @app.post("/v1/projects/{project_id}/review")
+@project_write
 def review(project_id: str, p: ReviewIn):
     project = load_project(project_id)
     blockers: list[str] = []
@@ -1639,7 +1852,7 @@ def review(project_id: str, p: ReviewIn):
     if not files:
         blockers.append("尚无成果文件（chem_generate）")
     unverified = [c for c in calculations
-                  if c.get("tool") in CALC_TOOLS and "passed" not in (c.get("validation") or {})]
+                  if c.get("tool") in CALC_TOOLS and (c.get("validation") or {}).get("passed") is None]
     result_warnings = []
     for reference in project.get('references') or []:
         if any(citation.get('ocr') for citation in reference.get('citations') or []):
@@ -1675,6 +1888,7 @@ def review(project_id: str, p: ReviewIn):
 
 
 @app.post("/v1/projects/{project_id}/bundle")
+@project_write
 def bundle(project_id: str):
     project = load_project(project_id)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

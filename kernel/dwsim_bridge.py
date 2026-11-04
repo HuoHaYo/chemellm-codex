@@ -12,6 +12,7 @@ import uuid
 import zipfile
 
 from app.dwsim import DwsimInput
+from app.dwsim_specs import compile_spec
 from app.external_tools import find_dwsim_home
 
 HERE = Path(__file__).resolve().parent
@@ -23,18 +24,30 @@ def find_home() -> Path | None:
     return find_dwsim_home()
 
 
+def runner_needs_build() -> bool:
+    """Check content rather than checkout/extraction timestamps."""
+    try:
+        manifest = json.loads(RUNNER.with_suffix('.build.json').read_text(encoding='utf-8-sig'))
+        sources = {source.name: hashlib.sha256(source.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+                   for source in RUNNER.parent.glob('*.cs')}
+        return (manifest.get('schema_version') != 1 or not sources
+                or manifest.get('sources') != sources
+                or manifest.get('runner_sha256') != hashlib.sha256(RUNNER.read_bytes()).hexdigest())
+    except (OSError, ValueError):
+        return True
+
+
 def status() -> dict:
     home = find_home()
     runner = RUNNER.is_file()
-    source = RUNNER.with_suffix('.cs')
-    needs_build = not runner or (source.is_file() and source.stat().st_mtime > RUNNER.stat().st_mtime)
+    needs_build = runner_needs_build()
     samples = sorted([*home.glob('samples/*.dwxmz'), *home.glob('samples/*.dwxml')]) if home else []
     return {'installed': bool(home), 'home': str(home) if home else '',
             'automation_dll': bool(home), 'runner': runner, 'needs_build': needs_build,
-            'ready': bool(home and runner and os.name == 'nt'),
-            'actions': ['status', 'catalog', 'inspect', 'create', 'run'],
+            'ready': bool(home and runner and not needs_build and os.name == 'nt'),
+            'actions': ['status', 'catalog', 'inspect', 'check', 'create', 'run'],
             'samples': [{'name': path.name, 'path': str(path)} for path in samples],
-            'scope': '稳态流程；动态、反应集和自定义单元须在原生模型中配置并单独验证',
+            'scope': '稳态热工、分离、循环及转化率/平衡反应；不支持动态与动力学速率表达式',
             'note': '调用本机 DWSIM Automation3，不随插件分发 DWSIM；未运行时不宣称模型已求解'}
 
 
@@ -69,6 +82,14 @@ def invoke(request: DwsimInput, work_dir: Path, *, save_path: Path | None = None
     work_dir = work_dir.resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
     payload = request.model_dump(mode='json')
+    groups = [payload.get('updates', [])] + payload.get('initialization', [])
+    if payload.get('model'):
+        groups.append(payload['model']['objects'])
+    from app.dwsim import DwsimObject
+    for group in groups:
+        for spec in group:
+            resolved = compile_spec(DwsimObject.model_validate(spec))
+            spec['parameters'] = {**spec.get('parameters', {}), **resolved}
     if request.flowsheet_path:
         source = Path(request.flowsheet_path).resolve()
         validate_flowsheet(source)

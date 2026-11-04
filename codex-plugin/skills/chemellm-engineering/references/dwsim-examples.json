@@ -1,0 +1,427 @@
+{
+  "note": "合成复算示例，不是工厂数据、报价或设计依据；先保存项目要求、计划与依据，再选 examples 中的一项作为 request；check 时将 action 改为 check。",
+  "engine_baseline": "DWSIM 9.0.5 on Windows",
+  "examples": {
+    "pump": {
+      "action": "create",
+      "model": {
+        "compounds": [
+          "Water"
+        ],
+        "property_package": "Steam Tables (IAPWS-IF97)",
+        "objects": [
+          {
+            "tag": "F",
+            "type": "MaterialStream",
+            "temperature_k": 300,
+            "pressure_pa": 300000,
+            "mass_flow_kg_s": 1,
+            "mole_fractions": {
+              "Water": 1.0
+            }
+          },
+          {
+            "tag": "U",
+            "type": "Pump",
+            "spec": {
+              "mode": "outlet_pressure",
+              "pressure_pa": 600000,
+              "efficiency": 0.75
+            }
+          },
+          {
+            "tag": "P",
+            "type": "MaterialStream"
+          },
+          {
+            "tag": "Q",
+            "type": "EnergyStream"
+          }
+        ],
+        "connections": [
+          {
+            "source": "F",
+            "target": "U"
+          },
+          {
+            "source": "U",
+            "target": "P"
+          },
+          {
+            "source": "Q",
+            "target": "U",
+            "target_port": 1
+          }
+        ]
+      }
+    },
+    "flash": {
+      "action": "create",
+      "model": {
+        "compounds": [
+          "Benzene",
+          "Toluene"
+        ],
+        "property_package": "Raoult's Law",
+        "objects": [
+          {
+            "tag": "F",
+            "type": "MaterialStream",
+            "temperature_k": 410,
+            "pressure_pa": 300000,
+            "mass_flow_kg_s": 1,
+            "mole_fractions": {
+              "Benzene": 0.5,
+              "Toluene": 0.5
+            }
+          },
+          {
+            "tag": "U",
+            "type": "Vessel",
+            "spec": {
+              "mode": "adiabatic"
+            }
+          },
+          {
+            "tag": "P",
+            "type": "MaterialStream"
+          },
+          {
+            "tag": "L",
+            "type": "MaterialStream"
+          }
+        ],
+        "connections": [
+          {
+            "source": "F",
+            "target": "U"
+          },
+          {
+            "source": "U",
+            "target": "P"
+          },
+          {
+            "source": "U",
+            "target": "L",
+            "source_port": 1
+          }
+        ]
+      }
+    },
+    "heat_exchanger": {
+      "action": "create",
+      "model": {
+        "compounds": [
+          "Water"
+        ],
+        "property_package": "Steam Tables (IAPWS-IF97)",
+        "objects": [
+          {
+            "tag": "COLD",
+            "type": "MaterialStream",
+            "x": 50,
+            "y": 50,
+            "temperature_k": 300,
+            "pressure_pa": 200000,
+            "mass_flow_kg_s": 2,
+            "mole_fractions": {
+              "Water": 1
+            }
+          },
+          {
+            "tag": "HOT",
+            "type": "MaterialStream",
+            "x": 50,
+            "y": 160,
+            "temperature_k": 350,
+            "pressure_pa": 200000,
+            "mass_flow_kg_s": 1,
+            "mole_fractions": {
+              "Water": 1
+            }
+          },
+          {
+            "tag": "E",
+            "type": "HeatExchanger",
+            "spec": {
+              "mode": "ua",
+              "area_m2": 2,
+              "overall_coefficient_w_m2_k": 500
+            }
+          },
+          {
+            "tag": "PRODUCT",
+            "type": "MaterialStream",
+            "x": 380,
+            "y": 100
+          },
+          {
+            "tag": "HOTOUT",
+            "type": "MaterialStream"
+          }
+        ],
+        "connections": [
+          {
+            "source": "COLD",
+            "target": "E"
+          },
+          {
+            "source": "HOT",
+            "target": "E",
+            "target_port": 1
+          },
+          {
+            "source": "E",
+            "target": "PRODUCT"
+          },
+          {
+            "source": "E",
+            "target": "HOTOUT",
+            "source_port": 1
+          }
+        ]
+      }
+    },
+    "benzene_toluene_column": {
+      "action": "create",
+      "model": {
+        "compounds": [
+          "Benzene",
+          "Toluene"
+        ],
+        "property_package": "Raoult's Law",
+        "objects": [
+          {
+            "tag": "F",
+            "type": "MaterialStream",
+            "temperature_k": 365,
+            "pressure_pa": 300000,
+            "mass_flow_kg_s": 1,
+            "mole_fractions": {
+              "Benzene": 0.5,
+              "Toluene": 0.5
+            }
+          },
+          {
+            "tag": "U",
+            "type": "DistillationColumn",
+            "spec": {
+              "mode": "column",
+              "column": {
+                "stages": 12,
+                "top_pressure_pa": 101325,
+                "bottom_pressure_pa": 110000,
+                "feed_stages": {
+                  "F": 6
+                },
+                "distillate_stream": "P",
+                "bottoms_stream": "B",
+                "condenser_spec": {
+                  "type": "Stream_Ratio",
+                  "value": 3,
+                  "unit": ""
+                },
+                "reboiler_spec": {
+                  "type": "Product_Molar_Flow_Rate",
+                  "value": 5.87,
+                  "unit": "mol/s"
+                }
+              }
+            }
+          },
+          {
+            "tag": "P",
+            "type": "MaterialStream"
+          },
+          {
+            "tag": "B",
+            "type": "MaterialStream"
+          }
+        ],
+        "connections": [
+          {
+            "source": "F",
+            "target": "U"
+          },
+          {
+            "source": "U",
+            "target": "P",
+            "source_port": 0
+          },
+          {
+            "source": "U",
+            "target": "B",
+            "source_port": 1
+          }
+        ]
+      }
+    },
+    "wgs_conversion": {
+      "action": "create",
+      "model": {
+        "compounds": [
+          "Carbon monoxide",
+          "Water",
+          "Carbon dioxide",
+          "Hydrogen"
+        ],
+        "property_package": "Peng-Robinson (PR)",
+        "objects": [
+          {
+            "tag": "F",
+            "type": "MaterialStream",
+            "temperature_k": 1000,
+            "pressure_pa": 300000,
+            "mass_flow_kg_s": 1,
+            "mole_fractions": {
+              "Carbon monoxide": 0.25,
+              "Water": 0.25,
+              "Carbon dioxide": 0.25,
+              "Hydrogen": 0.25
+            }
+          },
+          {
+            "tag": "U",
+            "type": "RCT_Conversion",
+            "spec": {
+              "mode": "reaction",
+              "reaction_set": "wgs",
+              "reactor_mode": "Isothermic"
+            }
+          },
+          {
+            "tag": "P",
+            "type": "MaterialStream"
+          },
+          {
+            "tag": "L",
+            "type": "MaterialStream"
+          }
+        ],
+        "connections": [
+          {
+            "source": "F",
+            "target": "U"
+          },
+          {
+            "source": "U",
+            "target": "P"
+          },
+          {
+            "source": "U",
+            "target": "L",
+            "source_port": 1
+          }
+        ],
+        "reactions": [
+          {
+            "key": "shift",
+            "type": "Conversion",
+            "stoichiometry": {
+              "Carbon monoxide": -1,
+              "Water": -1,
+              "Carbon dioxide": 1,
+              "Hydrogen": 1
+            },
+            "base_compound": "Carbon monoxide",
+            "phase": "Vapor",
+            "source": "Synthetic interface benchmark; not plant data",
+            "conditions": "1000 K, 300000 Pa; independent WGS reference uses NIST ideal-gas thermochemistry",
+            "conversion": 0.3
+          }
+        ],
+        "reaction_sets": [
+          {
+            "key": "wgs",
+            "reactions": [
+              "shift"
+            ]
+          }
+        ]
+      }
+    },
+    "wgs_equilibrium": {
+      "action": "create",
+      "model": {
+        "compounds": [
+          "Carbon monoxide",
+          "Water",
+          "Carbon dioxide",
+          "Hydrogen"
+        ],
+        "property_package": "Peng-Robinson (PR)",
+        "objects": [
+          {
+            "tag": "F",
+            "type": "MaterialStream",
+            "temperature_k": 1000,
+            "pressure_pa": 300000,
+            "mass_flow_kg_s": 1,
+            "mole_fractions": {
+              "Carbon monoxide": 0.25,
+              "Water": 0.25,
+              "Carbon dioxide": 0.25,
+              "Hydrogen": 0.25
+            }
+          },
+          {
+            "tag": "U",
+            "type": "RCT_Equilibrium",
+            "spec": {
+              "mode": "reaction",
+              "reaction_set": "wgs",
+              "reactor_mode": "Isothermic"
+            }
+          },
+          {
+            "tag": "P",
+            "type": "MaterialStream"
+          },
+          {
+            "tag": "L",
+            "type": "MaterialStream"
+          }
+        ],
+        "connections": [
+          {
+            "source": "F",
+            "target": "U"
+          },
+          {
+            "source": "U",
+            "target": "P"
+          },
+          {
+            "source": "U",
+            "target": "L",
+            "source_port": 1
+          }
+        ],
+        "reactions": [
+          {
+            "key": "shift",
+            "type": "Equilibrium",
+            "stoichiometry": {
+              "Carbon monoxide": -1,
+              "Water": -1,
+              "Carbon dioxide": 1,
+              "Hydrogen": 1
+            },
+            "base_compound": "Carbon monoxide",
+            "phase": "Vapor",
+            "source": "Synthetic interface benchmark; not plant data",
+            "conditions": "1000 K, 300000 Pa; independent WGS reference uses NIST ideal-gas thermochemistry"
+          }
+        ],
+        "reaction_sets": [
+          {
+            "key": "wgs",
+            "reactions": [
+              "shift"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

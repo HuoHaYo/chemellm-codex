@@ -13,18 +13,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-dwsim-runner.p
 python -X utf8 scripts/smoke_dwsim.py
 ```
 
-编译脚本用 Windows 自带 `csc.exe` 构建64位运行器，并从本机 DWSIM 安装复制程序集绑定配置。检测或编译不代表已安装 DWSIM；`smoke_dwsim.py` 会实际求解本机 Cavett 示例，未安装时明确跳过。
+编译脚本用 Windows 自带 `csc.exe` 构建64位运行器，并从本机 DWSIM 安装复制程序集绑定配置，同时生成 `DwsimRunner.build.json`，记录 EXE 及规范化源码的 SHA256。运行器新旧由内容指纹判断，解压时间或 Git 的换行转换不会导致误判；修改源码或二进制后需重新构建。检测或编译不代表已安装 DWSIM；`smoke_dwsim.py` 会实际求解本机 Cavett 示例，未安装时明确跳过。
 
 ## AI 调用
 
 - `chem_dwsim_status()` / `GET /v1/dwsim`：检测安装、运行器、示例和支持范围。
 - `chem_dwsim(project_id, request)`：类型化的 MCP 仿真入口。
 - `chem_execute(project_id, tool="dwsim", args=request)`：相同功能的通用入口，参数可用 `chem_tools(tool="dwsim")` 查询。
+- `chem_dwsim_study(project_id, request)`：串行多工况/扫描、状态、取消和续算；HTTP 为 `POST /v1/projects/{project_id}/dwsim/study`。
+- `chem_dwsim_publish(project_id, request)`：显式映射通过校核的结果到有版本检查的工程对象，并可比较参考数据；HTTP 为 `POST /v1/projects/{project_id}/dwsim/publish`。
 - HTTP：`POST /v1/projects/{project_id}/execute`，body 为 `{"tool":"dwsim","args":request}`。
 
 请求动作、单位、参数检查和可运行建模示例见[插件中的 DWSIM 调用说明](../codex-plugin/skills/chemellm-engineering/references/dwsim.md)。
 
-调用顺序是：检测环境 → 查询真实组分与物性包 → 保存项目要求、成果计划和设计依据 → 创建或载入流程 → 检查/更新参数 → 求解 → 使用通过校验的计算值。`catalog/inspect` 不要求先建立完整设计依据，也不新增计算记录。`create/run` 遵循 `basis` 阶段要求，并写入正式计算记录。
+八步功能及本机回归结果见[稳态扩展验收记录](dwsim-acceptance.md)。
+
+调用顺序是：检测环境 → 查询物性与依据 → `check` 建模前检查 → 配置/求解 → 独立守恒校核 → 独立参考数据比较 → 多工况 → 发布设计量。`catalog/inspect/check` 不要求先完成依据阶段，也不新增计算记录。`create/run` 遵循 `basis` 阶段要求，并写入正式计算记录；可用 `basis_keys` 固定关联已有依据。
 
 ## 可追溯结果
 
@@ -34,17 +38,25 @@ python -X utf8 scripts/smoke_dwsim.py
 
 `inspect` 仅读取模型保存状态，不重新求解。求解未收敛时保留失败模型及错误，并返回 `validation.passed=false`；自动校核会保留失败状态。超时终止子进程，输入和日志继续保留，先查看诊断再重试。
 
-当前连接执行**稳态求解**。结构化创建支持常用物流、混合/分流、换热、增压、阀、容器、塔及循环单元；具体模型配置是否充分由 DWSIM 求解验证。反应集、动态工况和自定义单元需在原生模型中配置，未在本接口中自动创建，也未宣称通过动态仿真验证。物性包、交互参数和模型适用性仍须结合真实资料核对；求解收敛不能代替专业审核。
+当前扩展覆盖八个环节：只检查不求解；单元和全流程质量/组分/能量独立校核；按单元物性包与二元参数来源管理；结构化热工/分离和严格塔；循环初值、显式初始化与实际诊断；最多50工况的持久串行任务；转化率/平衡反应及元素校核；有版本检查的工程对象发布、参考数据报告和数据表映射。详见插件调用说明中的字段和例子。动态、动力学CSTR/PFR和代码速率表达式不纳入。
+
+`solved` 保留引擎状态。`validation.passed` 全部必需检查完整通过才为true，失败false，信息不足null。质量与组分绝对容差1e-8 kg/s，能量1e-4 kW，相对1e-5，元素1e-7 mol/s，可显式配置并随结果保存。旧记录不追溯修改。守恒通过不等于模型精度或物性适用性已验证；原生默认零二元参数不是实验数据。缺少实测/文献数据时保留模型验证缺口。
+
+工况固定基准与哈希，每次独立原生模型和计算；失败点不能进入有效包络，取消在当前单次求解结束后停止，重启后显式resume继续未完成点。任务不增加后台监控。同项目写入互斥。发布只用明确选定且校核通过的结果，操作条件/模拟负荷与机械设计温压/裕量分开；数据表的绝压到表压换算需要明确环境压力。价格匹配继续使用已有台账及备注。
 
 ## 验证
 
 ```powershell
 python -X utf8 scripts/test_dwsim.py
+python -X utf8 scripts/test_dwsim_steady.py
+python -X utf8 scripts/test_dwsim_study_state.py
 python -X utf8 scripts/test_kernel.py
 .venv\Scripts\python.exe -X utf8 scripts/test_codex_mcp.py
 git diff --check
 ```
 
-`test_dwsim.py` 使用独立临时项目，包含真实混合器、加热器、PR 多组分流程、输入不变、新模型保存、参数检查、未收敛和成果哈希检查；无 DWSIM 时明确跳过真实计算。MCP 回归使用实际 stdio 协议和本机 DWSIM 验证建模、属性检查、工况更新及完整结果读取。
+`test_dwsim.py` 使用独立临时项目；`test_dwsim_steady.py` 要求真实引擎，不将跳过当通过。独立预期包括解析守恒、CoolProp水焓、严格塔稳定基准、[NIST WebBook](https://webbook.nist.gov/chemistry/)气相WGS平衡常数参考点。真实案例覆盖水/蒸汽、PR烃类、NRTL、泵/压缩机/阀/冷却/闪蒸/HX/简捷塔/严格塔、循环失败和显式初始化、转化率和平衡、多工况部分失败、工程对象版本及数据表。状态机测试单独覆盖取消/中断恢复，不冒充真实引擎精度验收。stdio MCP 回归实际调用check、study和publish，并检查单位与版本冲突。
 
 API 依据：[DWSIM Automation3 官方文档](https://dwsim.org/api_help/html/T_DWSIM_Automation_Automation3.htm)和[官方 C# 建模示例](https://github.com/DanWBR/dwsim/blob/windows/DWSIM.Automation.Tests.CSharp/newAPI.cs)，并以本机实际反射和运行结果核对；没有复制 DWSIM 引擎代码或数据到本仓库。
+
+本轮在线GitHub请求连接被重置，使用本机官方XML文档、反射及真实求解交叉核对；发现CreateEquilibriumReaction的XML参数标签顺序与9.0.5实际签名有差异，桥接按实际签名实现。NRTL/UNIQUAC温度形式通过本机程序集核对。源码仅包含有限API映射，不随包分发引擎或其数据库。不同DWSIM版本须重新验收。

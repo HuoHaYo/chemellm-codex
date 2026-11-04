@@ -1,0 +1,8 @@
+{
+    "schema_version":  1,
+    "runner_sha256":  "884c6a0027cd99c6cc86804bd52be6ef90729fe9707bea415734ce9473b0ee58",
+    "sources":  {
+                    "DwsimRunner.cs":  "a9f5a8db7b4a83b3c81ebb7b5299d3d572a7611c9631f0c9722ca8c2c8ef0536",
+                    "SteadySupport.cs":  "cb23deff8701893ac3ccf5bac175e311244680269c6cd741d8515e939149fb71"
+                }
+}
