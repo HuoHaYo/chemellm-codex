@@ -8,6 +8,7 @@ from pydantic import Field, model_validator
 
 from app.schemas import Inputs
 from app.dwsim_specs import UnitSpec, PropertyPackage, Reaction, ReactionSet, compile_spec
+from app.dwsim_layout import LayoutOptions
 
 
 class BalanceOptions(Inputs):
@@ -117,7 +118,11 @@ class DwsimModel(Inputs):
 
 
 class DwsimInput(Inputs):
-    action: Literal['status', 'catalog', 'inspect', 'check', 'create', 'run'] = 'status'
+    action: Literal['status', 'catalog', 'inspect', 'check', 'create', 'run', 'layout'] = 'status'
+    view: Literal['process', 'layout'] = Field(default='process', description='inspect 的布局视图包含原生图形、路径和 PNG 预览，不求解')
+    layout: LayoutOptions | None = None
+    output_format: Literal['dwxml', 'dwxmz'] | None = Field(default=None,
+        description='layout 默认沿用输入格式，create/run 默认 dwxmz；原文件不覆盖')
     flowsheet_path: str | None = Field(default=None, min_length=1, max_length=4000)
     model: DwsimModel | None = None
     updates: list[DwsimObject] = Field(default_factory=list, max_length=200,
@@ -141,6 +146,19 @@ class DwsimInput(Inputs):
 
     @model_validator(mode='after')
     def inputs(self):
+        if self.view != 'process' and self.action != 'inspect':
+            raise ValueError('view 仅用于 inspect')
+        if self.view=='layout' and self.property_packages:
+            raise ValueError('布局检查不接受物性配置修改')
+        if self.layout is not None and self.action not in {'layout','create','run'}:
+            raise ValueError('layout 配置仅用于 layout/create/run')
+        if self.output_format is not None and self.action not in {'layout','create','run'}:
+            raise ValueError('output_format 仅用于 layout/create/run')
+        if self.action == 'layout':
+            if not self.flowsheet_path or self.model is not None:
+                raise ValueError('layout 需要 flowsheet_path，不接受 model')
+            if self.updates or self.property_packages or self.initialization or self.basis_keys or self.run_context:
+                raise ValueError('layout 仅修改图形，不接受工艺更新、初始化或计算依据')
         if self.initialization and self.action!='run':raise ValueError('仅 run 接受分步初始化')
         if self.action == 'check':
             if (self.model is None) == (self.flowsheet_path is None) or self.model is not None and self.updates:
@@ -152,9 +170,9 @@ class DwsimInput(Inputs):
             for o in self.model.objects:
                 if o.type=='MaterialStream' and o.tag not in targets and any(getattr(o,k) is None for k in ['temperature_k','pressure_pa','mass_flow_kg_s','mole_fractions']):
                     raise ValueError('进料须显式指定温度、压力、质量流量和组成：'+o.tag)
-        elif self.action in {'run', 'inspect'}:
+        elif self.action in {'run', 'inspect', 'layout'}:
             if self.flowsheet_path is None or self.model is not None:
-                raise ValueError('run/inspect 需要 flowsheet_path，不接受 model')
+                raise ValueError('run/inspect/layout 需要 flowsheet_path，不接受 model')
             if self.action == 'inspect' and self.updates:
                 raise ValueError('inspect 不修改模型；更新使用 run')
         elif self.model is not None or self.flowsheet_path is not None or self.updates:

@@ -15,12 +15,41 @@
 | check | model 或 flowsheet_path；文件可带 updates | 只检查，不求解、不创建正式计算、不改原件 |
 | create | model | 创建、求解、保存独立原生模型和计算记录 |
 | run | flowsheet_path、updates、initialization、property_packages | 复制原件、修改、求解、另存新文件 |
+| layout | flowsheet_path；可选 layout、output_format | 编辑原生图形，另存模型、预览和布局报告；不求解、不创建计算记录 |
 
 status/catalog/inspect/check 不要求先完成依据阶段。create/run 遵循项目阶段要求。`basis_keys=["basis/feed"]` 关联已有工程依据。缺失来源或尚未支持的自由度判断显示待核对；明确的连接、进料、规格缺项定位到位号。check 的 `preflight.ready_to_solve` 不代表模型已经求解或通过全部自由度分析。
 
 `model` 必填 compounds/property_package/objects/connections。进料明确 temperature_k、pressure_pa、mass_flow_kg_s 和全部组分 mole_fractions，和为1，不自动归一化。温度K，压力绝压Pa，质量流量kg/s，摩尔流量mol/s，热流/轴功kW，质量焓kJ/kg。连接 source/target 的端口从0开始，先读取真实端口名和类型，不猜能量口。
 
 原有 parameters/properties 保持兼容。结构化 spec 与同参数重复或额外目标冲突会拒绝。原生属性按 inspect 的 writable/unit，标量枚举按 choices。object_tags 展开指定对象，offset/limit 分页对象，property_offset/property_limit 分页属性；完整检查保存在 inspection_path。缓存数值不是新仿真结果。更新结构化规格须给实际 type；type/x/y 不改变已有对象或拓扑。原生属性更新清除旧结构化规格标记。
+
+## 原生流程图布局与 AI 编辑
+
+新建模型需要可读布局时显式提供 `layout={}`，或在 `create/run` 中提供分区配置；省略时兼容原有坐标行为。已有文件先 `inspect(view="layout", flowsheet_path=...)`，读 `graphics.nodes/edges/metadata`、原生 PNG 和 `inspection_path` 中的完整图形，再调用 `layout` 编辑。对象通过原生 `name` 或唯一 `tag` 引用。分区语义由 AI 根据实际工艺资料确定，自动布局负责拓扑排列。
+
+```json
+{
+  "action": "layout",
+  "flowsheet_path": "data/example.dwxml",
+  "output_format": "dwxml",
+  "layout": {
+    "mode": "auto",
+    "groups": [{"id": "heating", "title": "进料与加热", "members": ["HT-101"]}],
+    "pinned": [],
+    "nodes": []
+  }
+}
+```
+
+`groups` 成员可只列设备，物流归入上游设备分区，进料归入下游分区；剩余连通分量另建分区。分区可给 `x/y` 指定内容起点；手动模式移动成员，固定对象保留原位。省略分区配置时沿用嵌入文件的分区；新的非空列表替换现有分区定义。
+
+局部精调：`layout={"mode":"manual","nodes":[{"object":"HT-101","x":500,"y":300,"rotation":90,"width":70,"height":100,"flipped_h":false}]}`。位置须同时给 x/y；尺寸为画布尺寸，旋转支持 0/90/180/270，另支持 `flipped_v`。自动模式中显式位置也作为固定约束。`pinned` 固定当前位置，省略时沿用保存的固定对象，显式 `[]` 清除旧约束；冲突返回重叠对象。默认间距 `grid=20, layer_gap=220, node_gap=100, group_gap=240`，单位为原生画布单位。
+
+`layout` 不接受工艺 updates、物性或初始化。它保留原文件，将允许修改的图形字段、原生分区框和带中文字体 CSS 的原生 HTML 文字、`ChemELLM_layout_v1` 元数据写入新文件，再真实载入新文件检查。工艺及连接数据保护见 `protected_data_unchanged`，重开检查见 `saved_reload_verified`。布局不返回新的 `solved/validation` 结论；需要计算验收时再对保存后的文件执行 `run`。
+
+`saved_flowsheet` 是新原生文件，`layout_path` 是完整前后图形与质量报告，`previews` 是 DWSIM 原生 Skia 渲染图。大分区按画布范围裁切为细节 PNG，总览用于定位。`layout_quality.before/after` 列出符号及标签包络重叠、连线交叉、穿过设备和长连接；`passed` 仅表示包络无重叠，不等于全部走线理想或工艺验收通过。查看预览后以手动模式继续精调，保留未解决问题。
+
+连线由 DWSIM 原生重建，不提供无法稳定保存的任意折点。分区图形不增加计算设备或改变端口。默认输出格式：layout 沿用输入，create/run 为 dwxmz；用 `output_format` 显式选择 dwxml/dwxmz。DWXML 去除节点间排版空白以控制尺寸，数值和文本保留；超过 25 MiB 时明确报错，可显式选择 dwxmz。
 
 ## 热工、分离和循环配置
 

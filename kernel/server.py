@@ -382,7 +382,8 @@ def _truncate_result(result: Any) -> dict:
     keys = list(result.keys())[:20] if isinstance(result, dict) else []
     if isinstance(result,dict) and result.get('engine')=='DWSIM':
         keys=['engine','version','action','solved','error','solver_errors','result_errors','validation','preflight',
-              'inspection_path','saved_flowsheet','input_source','runner_sha256','basis_keys','run_context','warnings']
+              'inspection_path','saved_flowsheet','input_source','runner_sha256','basis_keys','run_context','warnings',
+              'layout_path','layout_quality','previews','solver_executed','protected_data_unchanged','saved_reload_verified','sha256']
     return {
         "result": {k: result[k] for k in keys if k in result and k not in {"stages", "streams", "profiles"}},
         "truncated": True,
@@ -1077,7 +1078,17 @@ def run_dwsim(project: dict, args: dict) -> dict:
             if hashlib.sha256(input_copy.read_bytes()).hexdigest() != source_meta['sha256']:
                 raise ValueError('原始流程在复制期间发生修改，请保存后重试')
             request = request.model_copy(update={'flowsheet_path': str(input_copy)})
-        native_path = folder/'DWSIM流程.dwxmz'
+        output_format = request.output_format or (source.suffix.lower().lstrip('.') if request.action=='layout' else 'dwxmz')
+        native_path = folder/('DWSIM流程.'+output_format)
+        if request.action == 'layout':
+            input_path=folder/'DWSIM布局输入.json'
+            input_path.write_text(json.dumps({'request':args,'source':source_meta},ensure_ascii=False,indent=2),encoding='utf-8')
+            result=dwsim_bridge.layout_flowsheet(request,folder,native_path)
+            result['input_source']=source_meta
+            result['artifacts']=[artifact_record(project['id'],p,metadata={'source':'DWSIM native graphics layout',
+                'solver_executed':False,'protected_data_unchanged':True,'input_source':source_meta})
+                for p in [input_path,Path(result['layout_path']),native_path,input_copy,*sorted(folder.rglob('*.png'))]]
+            return result
         missing_basis = [key for key in request.basis_keys if key not in (project.get('objects') or {})]
         if missing_basis:
             raise ValueError('关联的设计依据不存在：'+', '.join(missing_basis))
@@ -1088,7 +1099,8 @@ def run_dwsim(project: dict, args: dict) -> dict:
             result={'engine':'DWSIM','action':'check','solved':False,'objects':[], 'connections':[],
                     'note':'输入存在明确缺项，尚未构建原生模型'}
         else:
-            result = dwsim_bridge.invoke(request, folder/'work', save_path=native_path if request.action not in {'inspect', 'check'} else None)
+            raw_native=folder/'DWSIM计算流程.dwxmz' if request.layout is not None or output_format=='dwxml' else native_path
+            result = dwsim_bridge.invoke(request, folder/'work', save_path=raw_native if request.action not in {'inspect', 'check'} else None)
         result['input_source'] = source_meta
         result['executed_at'] = _utc()
         if request.action == 'check':
@@ -1104,6 +1116,17 @@ def run_dwsim(project: dict, args: dict) -> dict:
         if request.action == 'inspect':
             inspection_path = folder/'DWSIM检查.json'
             inspection_path.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2), encoding='utf-8')
+            if request.view == 'layout':
+                from app.dwsim_layout import quality
+                graph=result['graphics']
+                result['layout_quality']=quality(graph)
+                result['previews']=graph['previews']
+                result['matched_objects']=len(graph['nodes'])
+                graph['nodes']=graph['nodes'][request.offset:request.offset+request.limit]
+                result['next_offset']=request.offset+request.limit if request.offset+request.limit<result['matched_objects'] else None
+                result['inspection_path']=str(inspection_path)
+                result['note']='原生布局与保存状态；未执行求解。完整图形和连接见 inspection_path。'
+                return result
             objects = result.get('objects') or []
             result['matched_objects'] = len(objects)
             result['objects'] = objects[request.offset:request.offset+request.limit]
@@ -1117,6 +1140,16 @@ def run_dwsim(project: dict, args: dict) -> dict:
             result['inspection_path'] = str(inspection_path)
             result['note'] = '仅载入检查，未重新求解；数值来自模型保存状态。展开属性请提供 object_tags，更多属性按 property_offset 分页读取。'
             return result
+        if request.layout is not None:
+            layout_result=dwsim_bridge.layout_flowsheet(DwsimInput(action='layout',flowsheet_path=str(raw_native),
+                layout=request.layout,timeout_seconds=request.timeout_seconds),folder/'layout',native_path)
+            for key in ('layout_path','layout_quality','previews','protected_data_unchanged','saved_reload_verified'):
+                result[key]=layout_result[key]
+            result['saved_flowsheet']=str(native_path)
+        elif output_format=='dwxml':
+            root,xml_name,entries=dwsim_bridge.read_native(raw_native)
+            dwsim_bridge.write_native(root,native_path,xml_name,entries)
+            result['saved_flowsheet']=str(native_path)
         if not native_path.is_file():
             raise ValueError('DWSIM 未保存原生模型，不能宣称仿真已完整交付；日志：'+str(folder/'work'))
         if native_path.stat().st_size > MAX_INTAKE:
@@ -1139,14 +1172,18 @@ def run_dwsim(project: dict, args: dict) -> dict:
         csv_path.write_text(dwsim_bridge.streams_csv(result), encoding='utf-8-sig')
         records = [artifact_record(project['id'], path, metadata={'source': 'DWSIM Automation3',
                     'version': result.get('version'), 'input_source': source_meta, 'solved': bool(result.get('solved'))})
-                   for path in [input_path, json_path, csv_path, native_path, *([input_copy] if input_copy else [])]]
+                   for path in [input_path, json_path, csv_path, native_path, *([input_copy] if input_copy else []),
+                       *([Path(result['layout_path']),*sorted((folder/'layout').rglob('*.png'))] if request.layout is not None else [])]]
         calculation_id = uid()
         result['artifacts'] = records
         execute('INSERT INTO calculations VALUES(?,?,?,?,?,?)', (calculation_id, project['id'], 'dwsim',
                 json.dumps(args, ensure_ascii=False, allow_nan=False), json.dumps(result, ensure_ascii=False, allow_nan=False), _utc()))
         return {'calculation_id': calculation_id, **result}
     except (ValueError, OSError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)[:2400]) from exc
+        detail=str(exc)
+        if 'request' in locals() and request.action=='layout' and 'folder' in locals():
+            detail+='；布局输入、模型及诊断目录：'+str(folder)
+        raise HTTPException(status_code=422, detail=detail[:2400]) from exc
 
 
 def export_compliance_matrix(project: dict, args: dict) -> dict:
@@ -1496,9 +1533,16 @@ def _execute_tool(project_id: str, p: ExecuteIn):
             request = DwsimInput.model_validate(p.args)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)[:2000]) from exc
-        if request.action in {'status', 'catalog', 'inspect', 'check'}:
+        if request.action in {'status', 'catalog', 'inspect', 'check', 'layout'}:
             result = run_dwsim(project, p.args)
-            return {'ok': True, 'tool': p.tool, 'calculationId': None, 'artifacts': [], **_truncate_result(result)}
+            artifacts=_normalize_artifacts(result, [])
+            if request.action=='layout':
+                project.setdefault('layout_edits',[]).append({'tool':'dwsim','createdAt':_utc(),
+                    'request':p.args,'report':result['layout_path'],'sha256':result['sha256']})
+                project.setdefault('files',[]).extend({**a,'origin':'generated','tool':'dwsim_layout','createdAt':_utc()} for a in artifacts)
+                project['bundle']=None
+                with _write_lock:save_project(project)
+            return {'ok': True, 'tool': p.tool, 'calculationId': None, 'artifacts': artifacts, **_truncate_result(result)}
     dependency = {'dwsim': 'dwsim', 'export_freecad': 'freecad', 'cad_part': 'freecad',
                   'cantera_equilibrium': 'cantera', 'cantera_reactor': 'cantera'}.get(p.tool)
     if dependency:

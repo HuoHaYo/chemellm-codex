@@ -423,5 +423,47 @@
         ]
       }
     }
+  },
+  "layout_examples": {
+    "note": "将 flowsheet_path 替换为已有原生文件，位号替换为 inspect(view=layout) 返回的实际 name 或唯一 tag；这些操作不求解。",
+    "inspect": {
+      "action": "inspect",
+      "view": "layout",
+      "flowsheet_path": "data/example.dwxml"
+    },
+    "auto": {
+      "action": "layout",
+      "flowsheet_path": "data/example.dwxml",
+      "output_format": "dwxml",
+      "layout": {
+        "groups": [
+          {
+            "id": "heating",
+            "title": "进料与加热",
+            "members": [
+              "HT-101"
+            ]
+          }
+        ]
+      }
+    },
+    "manual": {
+      "action": "layout",
+      "flowsheet_path": "data/readable.dwxml",
+      "layout": {
+        "mode": "manual",
+        "pinned": [
+          "HT-101"
+        ],
+        "nodes": [
+          {
+            "object": "PRODUCT",
+            "x": 900,
+            "y": 300,
+            "rotation": 0
+          }
+        ]
+      }
+    }
   }
 }

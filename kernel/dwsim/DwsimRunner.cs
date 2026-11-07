@@ -86,6 +86,15 @@ partial class DwsimRunner
     }
     static object Optional(object obj, string name)
     { try { return Call(obj, name); } catch { return null; } }
+    static object CalculateFlowsheet(object automation, object sim)
+    {
+        // Automation3.CalculateFlowsheet2 returns void and discards the native
+        // SolveFlowsheet2 exception list in DWSIM 9. CalculateFlowsheet4 preserves
+        // that list, including failures before any unit is calculated.
+        string method = automation.GetType().GetMethod("CalculateFlowsheet4") != null
+            ? "CalculateFlowsheet4" : "CalculateFlowsheet2";
+        return Call(automation, method, sim);
+    }
     static string Tag(object obj) { return Text(Get(Get(obj, "GraphicObject"), "Tag")); }
     static IDictionary Objects(object sim) { return (IDictionary)Get(sim, "SimulationObjects"); }
     static object Find(object sim, string tag)
@@ -294,18 +303,20 @@ partial class DwsimRunner
                 {
                     bool valid = true;
                     double massFlow=item["mass_flow_kg_s"]==null?Double.NaN:Convert.ToDouble(item["mass_flow_kg_s"]);
-                    bool zeroFlow=massFlow==0;
+                    // Native vapor-only reactions can leave roundoff in the absent
+                    // liquid outlet. Composition is undefined at that zero flow.
+                    bool zeroFlow=Math.Abs(massFlow)<=1e-12;
                     foreach (string key in new string[] { "temperature_k", "pressure_pa", "mass_flow_kg_s" })
                     {
                         if(zeroFlow && key!="mass_flow_kg_s")continue;
                         double number = item[key] == null ? Double.NaN : Convert.ToDouble(item[key]);
-                        if (Double.IsNaN(number) || Double.IsInfinity(number) || (key == "mass_flow_kg_s" ? number < 0 : number <= 0)) valid = false;
+                        if (Double.IsNaN(number) || Double.IsInfinity(number) || (key == "mass_flow_kg_s" ? number < -1e-12 : number <= 0)) valid = false;
                     }
                     var fractions = item["mole_fractions"] as double[];
                     var names = item["compounds"] as string[];
                     double sum = 0;
-                    if (fractions == null || names == null || fractions.Length != names.Length || fractions.Length == 0) valid = false;
-                    else foreach (double fraction in fractions)
+                    if (!zeroFlow && (fractions == null || names == null || fractions.Length != names.Length || fractions.Length == 0)) valid = false;
+                    else if(!zeroFlow) foreach (double fraction in fractions)
                     {
                         if (Double.IsNaN(fraction) || Double.IsInfinity(fraction) || fraction < -1e-10 || fraction > 1+1e-10) valid = false;
                         sum += fraction;
@@ -364,7 +375,14 @@ partial class DwsimRunner
             object automation = Activator.CreateInstance(Assembly.LoadFrom(Path.Combine(Home, "DWSIM.Automation.dll")).GetType("DWSIM.Automation.Automation3"));
             object sim = action == "create" || action == "catalog" || action == "check" && Value(request,"model",null)!=null ? Call(automation, "CreateFlowsheet") : Call(automation, "LoadFlowsheet", Text(request["flowsheet_path"]));
             Dictionary<string, object> result;
-            if (action == "catalog")
+            if(action == "layout") {
+                result=ApplyNativeLayout(sim,Map(request["compiled_layout"]));
+                result["solver_executed"]=false;
+            }
+            else if(action == "inspect" && Text(Value(request,"view","process")) == "layout") {
+                result=Dict("graphics",ReadLayout(sim,Path.Combine(Path.GetDirectoryName(output),"preview"),true),"solver_executed",false);
+            }
+            else if (action == "catalog")
             {
                 var compounds = new List<object>(); var available = (IDictionary)Get(sim, "AvailableCompounds");
                 foreach (DictionaryEntry c in available) compounds.Add(Dict("name", Text(c.Key), "cas", Text(Get(c.Value, "CAS_Number")), "formula", Text(Get(c.Value, "Formula"))));
@@ -377,7 +395,7 @@ partial class DwsimRunner
                 var initialization=new List<object>();
                 foreach(object step in (IEnumerable)Value(request,"initialization",new object[0])) {
                     foreach(object spec in (IEnumerable)step) {var s=Map(spec);var o=Find(sim,Text(s["tag"]));Apply(sim,o,s);Advanced(sim,o,s);}
-                    var errors=new List<string>();try{var returned=Call(automation,"CalculateFlowsheet2",sim) as IEnumerable;
+                    var errors=new List<string>();try{var returned=CalculateFlowsheet(automation,sim) as IEnumerable;
                         if(returned!=null)foreach(object e in returned)errors.Add(e is Exception?((Exception)e).GetBaseException().Message:Text(e));
                     }catch(TargetInvocationException e){errors.Add(e.GetBaseException().Message);}
                     var initialized=Read(sim,false,new HashSet<string>());initialized["solver_errors"]=errors;initialized["connections"]=Connections(sim);initialization.Add(initialized);
@@ -388,7 +406,7 @@ partial class DwsimRunner
                 {
                     // Persist configured input before solving, including when the process times out.
                     Call(automation,"SaveFlowsheet",sim,Text(request["save_path"]),true);
-                    try { var returned=Call(automation, "CalculateFlowsheet2", sim) as IEnumerable;
+                    try { var returned=CalculateFlowsheet(automation, sim) as IEnumerable;
                         if(returned!=null)foreach(object error in returned)solverErrors.Add(error is Exception?((Exception)error).GetBaseException().Message:Text(error)); }
                     catch (TargetInvocationException ex) { solverErrors.Add(ex.GetBaseException().Message); }
                 }

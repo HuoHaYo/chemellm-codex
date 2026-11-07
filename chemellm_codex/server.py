@@ -160,7 +160,10 @@ def create_server() -> FastMCP:
         """使用本机 DWSIM 做稳态仿真，创建/载入流程、检查参数、修改工况及求解。
 
         catalog 查真实组分/物性包；inspect 查位号、端口和可写属性及单位；check 只检查不求解。
+        inspect(view="layout") 读取原生图形、端口坐标、连线路径和预览。
+        layout 提供 flowsheet_path 和可选 layout（自动分区、固定对象及局部位置/尺寸/方向）；仅编辑图形，另存原生文件与预览，不求解或创建计算记录。
         create 提供 model；run 提供 flowsheet_path 和可选 updates。原文件保留，另存原生模型、物流表和完整计算记录。
+        create/run 可选 layout；output_format 可选 dwxml/dwxmz。
         求解前保存项目要求、计划和依据；只在 solved 和 validation.passed 都为 true 时使用计算值。
         """
         return await bridge.request('POST', project_path(project_id)+'/execute', {

@@ -26,6 +26,10 @@ python -X utf8 scripts/smoke_dwsim.py
 
 请求动作、单位、参数检查和可运行建模示例见[插件中的 DWSIM 调用说明](../codex-plugin/skills/chemellm-engineering/references/dwsim.md)。
 
+原生布局编辑使用 `chem_dwsim(action="layout")`，支持自动拓扑分层、工艺分区、固定设备和局部坐标/尺寸/方向调整。`inspect(view="layout")` 返回原生图形、端口坐标、连接路径和 PNG。布局结果保留原件，另存 DWXML/DWXMZ，并在保存后实际重开；仅合并允许的图形字段与专用布局元数据，工艺和连接数据保持一致。该操作登记成果及布局历史，不新增计算记录或数值验收。`create/run` 可选提供同一 `layout`；省略时保持原有行为。
+
+布局回归：`.venv/Scripts/python.exe -X utf8 scripts/test_dwsim_layout.py`，覆盖循环/分支/孤立节点、固定冲突、中文分区、两种原生格式、连续编辑、未知扩展及压缩包附属文件保护、保存后复算。预览使用本机 DWSIM 自带 SkiaSharp，编译运行器需从已安装的 DWSIM 引用该 DLL，插件不分发它。
+
 八步功能及本机回归结果见[稳态扩展验收记录](dwsim-acceptance.md)。
 
 调用顺序是：检测环境 → 查询物性与依据 → `check` 建模前检查 → 配置/求解 → 独立守恒校核 → 独立参考数据比较 → 多工况 → 发布设计量。`catalog/inspect/check` 不要求先完成依据阶段，也不新增计算记录。`create/run` 遵循 `basis` 阶段要求，并写入正式计算记录；可用 `basis_keys` 固定关联已有依据。

@@ -298,6 +298,20 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         native = next(item for item in simulated['artifacts'] if item['name'] == 'DWSIM流程.dwxmz')
         path = Path(native['localPath'])
         before = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.assertIn('layout',schema['properties']['action']['enum'])
+        laid_out=await self.call('chem_dwsim',project_id=project_id,request={
+            'action':'layout','flowsheet_path':str(path),'output_format':'dwxml',
+            'layout':{'groups':[{'id':'heat','title':'加热分区','members':['HT-101']}]}})
+        self.assertIsNone(laid_out['calculationId'])
+        layout_result=laid_out['result']
+        self.assertFalse(layout_result['solver_executed'])
+        self.assertTrue(layout_result['protected_data_unchanged'])
+        self.assertTrue(layout_result['saved_reload_verified'])
+        self.assertTrue(any(a['name'].endswith('.dwxml') for a in laid_out['artifacts']))
+        self.assertEqual(len((await self.call('chem_calculations',project_id=project_id))['calculations']),1)
+        layout_view=await self.call('chem_dwsim',project_id=project_id,request={
+            'action':'inspect','view':'layout','flowsheet_path':layout_result['saved_flowsheet']})
+        self.assertEqual(len([n for n in layout_view['result']['graphics']['nodes'] if n['simulation']]),4)
         inspected = await self.call('chem_dwsim', project_id=project_id, request={
             'action': 'inspect', 'flowsheet_path': str(path), 'object_tags': ['HT-101']})
         props = inspected['result']['objects'][0]['properties']

@@ -11,7 +11,10 @@ $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $src)) { throw "missing $src" }
 if (-not (Test-Path $csc)) { throw "csc.exe not found: $csc" }
 $sources = @(Get-ChildItem -LiteralPath $outDir -Filter *.cs | ForEach-Object { $_.FullName })
-& $csc /nologo /platform:x64 /reference:System.Web.Extensions.dll /out:$exe $sources
+$dwsim = if ($env:DWSIM_HOME) { $env:DWSIM_HOME } else { Join-Path $env:LOCALAPPDATA "DWSIM" }
+$skia = Join-Path $dwsim 'SkiaSharp.dll'
+if (-not (Test-Path $skia)) { throw "DWSIM SkiaSharp.dll not found: $skia" }
+& $csc /nologo /platform:x64 /reference:System.Web.Extensions.dll /reference:System.Xml.Linq.dll "/reference:$skia" /out:$exe $sources
 if ($LASTEXITCODE -ne 0) { throw "csc failed: $LASTEXITCODE" }
 
 $sourceHashes = [ordered]@{}
@@ -31,7 +34,6 @@ $fingerprint = [ordered]@{
 }
 [IO.File]::WriteAllText((Join-Path $outDir 'DwsimRunner.build.json'), ($fingerprint | ConvertTo-Json -Depth 4) + "`n", (New-Object Text.UTF8Encoding($false)))
 
-$dwsim = if ($env:DWSIM_HOME) { $env:DWSIM_HOME } else { Join-Path $env:LOCALAPPDATA "DWSIM" }
 $config = Join-Path $dwsim "DWSIM.Automation.dll.config"
 if (Test-Path $config) {
     $configText = ((Get-Content -LiteralPath $config) | ForEach-Object { $_.TrimEnd() }) -join "`n"

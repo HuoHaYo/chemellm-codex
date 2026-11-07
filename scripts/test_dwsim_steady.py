@@ -324,6 +324,14 @@ class SteadyTests(base.DwsimTests):
         broken['connections']=[e for e in broken['connections'] if e['target']!='PRODUCT']
         bad=self.sim(action='create',model=broken)
         self.assertIsNot(bad['result']['validation']['passed'],True)
+        # A disconnected object may simply remain uncalculated without any
+        # native exception. Test exception preservation on a complete heater
+        # whose pressure drop exceeds its inlet pressure instead.
+        outside=base.heater_model()
+        next(o for o in outside['objects'] if o['tag']=='HT-101')['parameters']['DeltaP']=1e6
+        failed=self.sim(action='create',model=outside)
+        self.assertIsNot(failed['result']['validation']['passed'],True)
+        self.assertTrue(failed['result']['solver_errors'],failed['result'])
         denied=self.client.post(self.base+'/dwsim/publish',json=dict(calculation_id=bad['calculationId'],case='bad',
             references=[dict(key='temperature',path='/streams/@PRODUCT/temperature_k',unit='K',value=350,source='synthetic',conditions='invalid')]))
         self.assertEqual(denied.status_code,422)
