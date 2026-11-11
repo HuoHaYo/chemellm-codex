@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager, redirect_stdout
+from contextlib import asynccontextmanager
 import hashlib
 import json
 from pathlib import Path
 import sys
 from typing import Literal
+from typing import Annotated
+from pydantic import Field
 from urllib.parse import quote
 
 import httpx
@@ -20,10 +21,29 @@ from mcp.server.fastmcp.utilities.types import Image as MCPImage
 
 from kernel import server as kernel
 from app.pricing import PriceItem
-from app.references import ReferenceSource, ReferenceEntry
+from app.basis_selection import BasisSelectionIn
+from app.references import ReferenceSource, ReferenceEntry, ImageCitation
 from app.dwsim import DwsimInput
 from app.dwsim_workflows import StudyInput, PublishInput
+from app.efficiency import ProjectInit, ArtifactRegistration
 from kernel.dependencies import DependencyInstall
+
+class ProtocolStdout:
+    """Transport holds original binary stdout; route subsequent prints to stderr.
+
+    Includes background workers. Requests never change global streams.
+    """
+    def __init__(self, original):
+        self.original = original
+
+    def write(self, data):
+        return sys.stderr.write(data)
+
+    def flush(self):
+        return sys.stderr.flush()
+
+    def __getattr__(self, name):
+        return getattr(sys.stderr, name)
 
 
 def segment(value: str) -> str:
@@ -37,22 +57,22 @@ def local_file(path: Path) -> dict:
     return {
         "localPath": str(path),
         "bytes": path.stat().st_size,
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "sha256": kernel.efficiency.file_digest(path),
     }
 
 
 class KernelBridge:
     def __init__(self) -> None:
-        self.lock = asyncio.Lock()
         self.client: httpx.AsyncClient | None = None
 
     async def request(self, method: str, path: str, payload: dict | None = None) -> dict:
         if self.client is None:
             raise ToolError("内核适配器尚未启动")
-        # The kernel writes JSON project state; serialize calls in this process.
-        async with self.lock:
-            with redirect_stdout(sys.stderr):
-                response = await self.client.request(method, path, json=payload)
+        # Kernel project guards serialize mutations, while status/cancel stay live.
+        import time
+        started = time.perf_counter()
+        response = await self.client.request(method, path, json=payload)
+        kernel.record_metrics('bridge', {'request_ms': round((time.perf_counter()-started)*1000, 3), 'lock_wait_ms': 0})
         if response.is_error:
             try:
                 detail = response.json().get("detail", response.text)
@@ -68,7 +88,11 @@ class KernelBridge:
             artifact_id = value.get("artifactId")
             if artifact_id and value.get("downloadPath"):
                 try:
-                    value.update(local_file(kernel._artifact_path(str(artifact_id))))
+                    path = kernel._artifact_path(str(artifact_id)).resolve()
+                    value.update(localPath=str(path), bytes=path.stat().st_size)
+                    if not value.get('sha256'):
+                        row = kernel.one('SELECT metadata FROM artifacts WHERE id=?', (str(artifact_id),))
+                        value['sha256'] = json.loads(row['metadata']).get('sha256') if row else None
                 except (kernel.HTTPException, OSError):
                     # Missing originals must not hide the project needed for recovery.
                     value["localFileMissing"] = True
@@ -77,7 +101,8 @@ class KernelBridge:
                 name = str(bundle["name"])
                 segment(name)
                 try:
-                    bundle.update(local_file(kernel.BUNDLES_DIR / name))
+                    path = kernel.BUNDLES_DIR / name
+                    bundle.update(localPath=str(path.resolve()), bytes=path.stat().st_size)
                 except OSError:
                     bundle["localFileMissing"] = True
             for child in list(value.values()):
@@ -92,6 +117,8 @@ def create_server() -> FastMCP:
 
     @asynccontextmanager
     async def lifespan(_server: FastMCP):
+        original_stdout = sys.stdout
+        sys.stdout = ProtocolStdout(original_stdout)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=kernel.app),
             base_url="http://127.0.0.1:8766",
@@ -103,14 +130,18 @@ def create_server() -> FastMCP:
                 yield bridge
             finally:
                 bridge.client = None
+                sys.stdout = original_stdout
 
     server = FastMCP(
         "chemellm",
         instructions=("化工计算和工程成果使用本地项目、真实工具结果及可追溯依据。"
                       "先读项目和工具参数；数值保留单位、条件、来源。"
+                      "新任务用 chem_project_init 一次初始化，可直接试算；工具自动保留真实输入、结果、校核和文件。"
+                      "设计数值用 chem_basis_select；同来源用 source_groups 和数值简写，AI只补关键决策与例外。用户数据优先、适用资料/推算其次、假设兜底；保留假设传递。"
+                      "缺少数据时主动检索、计算或作有依据的假设继续全部约定设计，不因缺数放弃设计项、删减设备或降低约定模型深度；假设和验证状态如实报告。"
                       "收到真实价格后用 chem_price_save 持久化；先 chem_prices 读取版本。缺价估值须标为 assumption 并说明依据，不得覆盖真实价格。"
                       "每次新增或更新价格填写本次 source，并在 notes 备注题设假定、工厂报价或 AI 暂估及适用背景；引用时结合备注判断。"
-                      "设计资料使用 chem_reference_* 自动归档到共享库；当前会话读取原文/图像后保存带定位的整理稿，引用固定版本并回看原文。"
+                      "资料保存原件、读取相关部分后固定引用；图像可直接按页引用，整理稿按复用需要生成。外部成果用 chem_artifacts_register 批量登记。"
                       "缺少当前任务需要的不随包工具时先 chem_dependency_prepare，说明用途、安装理由与方案，向真实用户询问是否安装；仅在用户明确同意后 chem_dependency_install，完成验证后继续原任务。用户拒绝或未回复时不得安装。"
                       "自动校核不能替代专业审核。失败后先核对项目状态再重试。"),
         lifespan=lifespan,
@@ -122,14 +153,52 @@ def create_server() -> FastMCP:
     def project_path(project_id: str) -> str:
         return "/v1/projects/" + segment(project_id)
 
+    async def refresh_roots():
+        from urllib.parse import urlparse
+        from urllib.request import url2pathname
+        session = server.get_context().session
+        if not session.client_params or not session.client_params.capabilities.roots:
+            return
+        result = await session.list_roots()
+        roots = []
+        for root in result.roots:
+            parsed = urlparse(str(root.uri))
+            if parsed.scheme == 'file' and parsed.netloc in {'', 'localhost'}:
+                roots.append(Path(url2pathname(parsed.path)).resolve())
+        kernel._client_roots = roots
+
+    @server.tool(annotations=write)
+    async def chem_project_init(request: ProjectInit) -> dict:
+        """一次建立/更新任务类型、要求和交付计划；旧项目显式 upgrade=true。返回摘要。"""
+        await refresh_roots()
+        return await bridge.request('POST', '/v1/project-init', request.model_dump())
+
+    @server.tool(annotations=write)
+    async def chem_artifacts_register(project_id: str, request: ArtifactRegistration) -> dict:
+        """按相对路径批量固定外部成果版本与交付映射。外部报告声明不等于独立校核。"""
+        await refresh_roots()
+        return await bridge.request('POST', project_path(project_id)+'/artifacts/register', request.model_dump())
+
     @server.tool(annotations=read)
-    async def chem_dependencies(dependency: Literal['dwsim', 'freecad', 'libreoffice', 'cantera'] | None = None) -> dict:
+    async def chem_records(project_id: str, section: Literal['objects', 'source_groups', 'calculations', 'files', 'references',
+                                                           'history', 'runs', 'deliverables', 'requirements', 'review'] = 'objects',
+                           offset: Annotated[int, Field(ge=0)] = 0, limit: Annotated[int, Field(ge=1, le=100)] = 20,
+                           key: str | None = None) -> dict:
+        """分页读取对象、计算、成果和历史；key 可定向定位。"""
+        from urllib.parse import urlencode
+        query = {'section': section, 'offset': offset, 'limit': limit}
+        if key is not None:
+            query['key'] = key
+        return await bridge.request('GET', project_path(project_id)+'/records?'+urlencode(query))
+
+    @server.tool(annotations=read)
+    async def chem_dependencies(dependency: Literal['dwsim', 'freecad', 'libreoffice', 'cantera', 'blender'] | None = None) -> dict:
         """检测不随包的工程工具，省略 dependency 列出全部；只检测，不自动安装或向用户提问。"""
         path = '/v1/dependencies'+('?dependency='+dependency if dependency else '')
         return await bridge.request('GET', path)
 
     @server.tool(annotations=write)
-    async def chem_dependency_prepare(dependency: Literal['dwsim', 'freecad', 'libreoffice', 'cantera'], reason: str) -> dict:
+    async def chem_dependency_prepare(dependency: Literal['dwsim', 'freecad', 'libreoffice', 'cantera', 'blender'], reason: str) -> dict:
         """为当前任务缺少的工具生成安装方案、来源、目标和提问文案；本工具不安装。
 
         reason 说明具体任务为什么需要它。向真实用户展示方案并询问“是否安装？是/否”，收到回复前不可调用安装。
@@ -166,12 +235,14 @@ def create_server() -> FastMCP:
         create/run 可选 layout；output_format 可选 dwxml/dwxmz。
         求解前保存项目要求、计划和依据；只在 solved 和 validation.passed 都为 true 时使用计算值。
         """
+        await refresh_roots()
         return await bridge.request('POST', project_path(project_id)+'/execute', {
             'tool': 'dwsim', 'args': request.model_dump(mode='json')})
 
     @server.tool(annotations=write)
     async def chem_dwsim_study(project_id: str, request: StudyInput) -> dict:
         """固定原生模型，串行比较最多50个工况；start/status/resume/cancel。每点保留独立记录，失败点不进入设计包络。"""
+        await refresh_roots()
         return await bridge.request('POST',project_path(project_id)+'/dwsim/study',request.model_dump(mode='json'))
 
     @server.tool(annotations=write)
@@ -187,6 +258,8 @@ def create_server() -> FastMCP:
 
         不调用模型 API。后续由当前 Codex 会话读取、识图并保存整理稿。文件须在本仓库或数据目录，最多25 MiB。
         """
+        await refresh_roots()
+        kernel.REFERENCE_LIBRARY.allowed = kernel.task_roots()
         return await bridge.request('POST', '/v1/references/import', {
             'source': source.model_dump(), 'path': path, 'text': text, 'url': url, 'name': name})
 
@@ -194,7 +267,8 @@ def create_server() -> FastMCP:
     async def chem_reference_read(reference_id: str, revision: int | None = None,
                                   view: Literal['metadata', 'source', 'organized', 'image'] = 'source',
                                   page: int | None = None, block_ids: list[str] | None = None,
-                                  offset: int = 0, limit: int = 10) -> CallToolResult:
+                                  offset: Annotated[int, Field(ge=0)] = 0,
+                                  limit: Annotated[int, Field(ge=1, le=50, description='返回块数，不是字符数')] = 10) -> CallToolResult:
         """分页读原文、整理稿或历史版本；view=image 将指定页直接作为图像返回给当前 Codex 识读。
 
         source 的 b... 是原文定位；organized 的 t-... 是待核对逐字转录，s-... 是不能冒充原文的整理稿。
@@ -242,13 +316,15 @@ def create_server() -> FastMCP:
 
     @server.tool(annotations=write)
     async def chem_reference_use(project_id: str, reference_id: str, revision: int,
-                                 block_ids: list[str], purpose: str) -> dict:
+                                 purpose: str, block_ids: list[str] | None = None,
+                                 images: list[ImageCitation] | None = None) -> dict:
         """把原文/逐字转录的固定版本复制到项目，返回可供 evidence_add 使用的 snapshot_id/block_id。
 
         项目副本不随共享库更新，原件、来源和整理稿随项目打包；删除项目不会删除共享库。
         """
         return await bridge.request('POST', project_path(project_id)+'/references', {
-            'reference_id': reference_id, 'revision': revision, 'block_ids': block_ids, 'purpose': purpose})
+            'reference_id': reference_id, 'revision': revision, 'block_ids': block_ids or [],
+            'images': [i.model_dump() for i in images or []], 'purpose': purpose})
 
     @server.tool(annotations=read)
     async def chem_health() -> dict:
@@ -277,14 +353,14 @@ def create_server() -> FastMCP:
         return await bridge.request("GET", "/v1/projects")
 
     @server.tool(annotations=write)
-    async def chem_create_project(name: str) -> dict:
+    async def chem_create_project(name: str, workflow: Literal['efficient', 'legacy'] = 'efficient') -> dict:
         """建立本地项目，返回 projectId。"""
-        return await bridge.request("POST", "/v1/projects", {"name": name})
+        return await bridge.request("POST", "/v1/projects", {"name": name, 'workflow': workflow})
 
     @server.tool(annotations=read)
-    async def chem_project(project_id: str) -> dict:
+    async def chem_project(project_id: str, view: Literal['summary', 'full'] | None = None) -> dict:
         """读取要求、计划、工程对象、计算、文件和审核状态。"""
-        return await bridge.request("GET", project_path(project_id))
+        return await bridge.request("GET", project_path(project_id)+('?view='+view if view else ''))
 
     @server.tool(annotations=write)
     async def chem_prices(project_id: str) -> dict:
@@ -334,19 +410,36 @@ def create_server() -> FastMCP:
     async def chem_object(project_id: str, kind: str, key: str, title: str = "",
                           quantities: list[dict] | None = None,
                           attributes: dict | None = None, depends_on: list[str] | None = None) -> dict:
-        """保存工程对象。quantities 每项保留 key/value/unit/conditions/origin/rationale。"""
+        """保存普通工程对象。数值选取用 chem_basis_select，quantities 每项保留 key/value/unit/conditions/origin/rationale；已选取数值不能在此覆盖。"""
         return await bridge.request("POST", project_path(project_id) + "/objects", {
             "kind": kind, "key": key, "title": title, "quantities": quantities or [],
             "attributes": attributes or {}, "dependsOn": depends_on or [],
         })
 
+    @server.tool(annotations=write)
+    async def chem_basis_select(project_id: str, request: BasisSelectionIn) -> dict:
+        """保存工程数值候选并自动选取：用户 > 适用资料/已有数据推算 > 合理假设。
+
+        新对象 expected_revision=0，更新先 chem_records 定向读取对象版本。同来源用 source_groups 和批量简写。
+        候选保留单位、来源、条件、
+        适用性及理由；derived 必填方法、公式和实际输入，依赖假设时保留假设属性。
+        资料与推算同级，可用 preferred_candidate_id 择优；不能越级覆盖用户数据。
+        追加候选、保留其他数值及历史；role 区分 process/solver/geometry，重要工艺假设 critical=true。
+        本工具不执行搜索或计算，不验证来源真实性，不生成新的求解/数值验收结论。
+        """
+        return await bridge.request('POST', project_path(project_id) + '/basis/select', request.model_dump())
+
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True))
-    async def chem_execute(project_id: str, tool: str, args: dict) -> dict:
+    async def chem_execute(project_id: str, tool: str, args: dict, deliverable_keys: list[str] | None = None,
+                           basis_keys: list[str] | None = None) -> dict:
         """运行目录中的计算、证据或生成工具。先 chem_tools 查参数；成果返回本地路径和哈希。
 
         错误或超时可能已有写入，重试前用 chem_project/chem_calculations 核对。
         """
-        return await bridge.request("POST", project_path(project_id) + "/execute", {"tool": tool, "args": args})
+        await refresh_roots()
+        return await bridge.request("POST", project_path(project_id) + "/execute",
+                                    {"tool": tool, "args": args, 'deliverable_keys': deliverable_keys or [],
+                                     'basis_keys':basis_keys or []})
 
     @server.tool(annotations=read)
     async def chem_calculations(project_id: str, calculation_id: str | None = None) -> dict:
@@ -358,7 +451,8 @@ def create_server() -> FastMCP:
 
     @server.tool(annotations=write)
     async def chem_intake(project_id: str, path: str, name: str | None = None) -> dict:
-        """导入本仓库或数据目录内的材料（最多 25 MiB），保留文件哈希。"""
+        """导入 roots/allowed-root 允许目录中的材料（最多25 MiB）；外部成果批量登记用 chem_artifacts_register。"""
+        await refresh_roots()
         return await bridge.request("POST", project_path(project_id) + "/intake", {"path": path, "name": name})
 
     @server.tool(annotations=read)
@@ -390,7 +484,7 @@ def create_server() -> FastMCP:
     @server.resource("chemellm://projects/{project_id}", mime_type="application/json")
     async def project_resource(project_id: str) -> str:
         """工程项目完整状态。"""
-        return json.dumps(await chem_project(project_id), ensure_ascii=False)
+        return json.dumps(await chem_project(project_id, view='full'), ensure_ascii=False)
 
     @server.resource("chemellm://calculations/{project_id}/{calculation_id}", mime_type="application/json")
     async def calculation_resource(project_id: str, calculation_id: str) -> str:

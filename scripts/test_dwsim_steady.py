@@ -48,6 +48,28 @@ class BalanceTests(unittest.TestCase):
 
 
 class SteadyTests(base.DwsimTests):
+    def test_efficient_trial_without_ledger_and_formal_review_real(self):
+        self.require_engine()
+        created=self.client.post('/v1/project-init',json=dict(name='efficient DWSIM',task_kind='simulation',
+            requirements=[dict(code='R1',title='真实混合器复算')],deliverables=[dict(key='sim',title='采用仿真',
+                requirementCodes=['R1'],formats=['dwxmz','csv'])])).json()
+        ident=created['project']['projectId'];path='/v1/projects/'+ident
+        try:
+            trial=self.client.post(path+'/execute',json=dict(tool='dwsim',args=dict(action='create',model=base.mixer_model())))
+            self.assertEqual(trial.status_code,200,trial.text)
+            trial=trial.json();self.assertTrue(trial['solved']);self.assertTrue(trial['verification']['validation']['passed'])
+            project=base.server.load_project(ident)
+            self.assertEqual(project['objects'],{})
+            self.assertTrue(project['calculations'][0]['captured_inputs'])
+            d=project['plan']['deliverables'][0];d['calculation_ids']=[trial['calculationId']]
+            updated=self.client.post('/v1/project-init',json=dict(project_id=ident,task_kind='simulation',
+                expected_revision=project['_store_revision'],deliverables=[d]))
+            self.assertEqual(updated.status_code,200,updated.text)
+            reviewed=self.client.post(path+'/review',json={}).json()['review']
+            self.assertTrue(reviewed['ready'],reviewed)
+            self.assertLess(len(json.dumps(trial).encode()),32768)
+        finally:self.client.delete(path)
+
     def sim(self,**request):
         response=super().sim(**request)
         if response.get('truncated'):
@@ -157,6 +179,23 @@ class SteadyTests(base.DwsimTests):
         self.assertEqual(data['sources'][0]['quantity']['calculationId'],calculation)
         for a in sheet['artifacts']:self.assertEqual(hashlib.sha256(base.server._artifact_path(a['artifactId']).read_bytes()).hexdigest(),a['sha256'])
         self.post('/objects',dict(kind='equipment',key='HT-101',title='manual',quantities=full['quantities']))
+        # Input selection stays protected when real solved results are published.
+        from test_basis_selection import candidate, quantity
+        selected=quantity([candidate('user-temperature','user',360,'K')])
+        selected.update(key='temperature',unit='K',conditions='hot 工况出口')
+        self.post('/basis/select',dict(kind='equipment',key='thermal',expected_revision=0,
+            reason='真实发布路径验证用户数值保护',quantities=[selected]))
+        protected=dict(calculation_id=calculation,case='hot',objects=[dict(kind='equipment',key='thermal',title='工艺依据',expected_revision=1,
+            quantities=[dict(key='temperature',path='/streams/@PRODUCT/temperature_k',unit='K',conditions='hot 工况出口',rationale='尝试覆盖输入')])])
+        denied=self.client.post(self.base+'/dwsim/publish',json=protected)
+        self.assertEqual(denied.status_code,409,denied.text)
+        protected['objects'][0]['quantities'][0]['key']='calculated_temperature'
+        accepted=self.client.post(self.base+'/dwsim/publish',json=protected)
+        self.assertEqual(accepted.status_code,200,accepted.text)
+        current=self.client.get(self.base).json()['project']['objects']['equipment/thermal']
+        self.assertEqual(len(current['selectionHistory']),1)
+        self.assertEqual(current['quantities'][0]['source_type'],'user')
+        self.assertEqual(current['quantities'][1]['origin'],'calculation')
         self.assertFalse(self.client.get(self.base).json()['project']['review'])
 
     def test_conversion_and_equilibrium_real(self):

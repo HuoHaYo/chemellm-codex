@@ -1,0 +1,21 @@
+{
+  "title": "虚构化工厂演示 / Demonstration only",
+  "units": "mm",
+  "items": [
+    {"id":"SITE","kind":"ground","length":100000,"width":70000,"source":"虚构厂区演示；全部尺寸与位置均为示例假设"},
+    {"id":"TK-101","kind":"tank","position":[-30000,14000,0],"diameter":10000,"height":11000,"source":"虚构演示假设"},
+    {"id":"TK-102","kind":"tank","position":[-14000,14000,0],"diameter":10000,"height":11000,"source":"虚构演示假设"},
+    {"id":"T-101","kind":"column","position":[5000,7000,0],"diameter":3400,"height":23000,"source":"虚构演示假设"},
+    {"id":"R-101","kind":"vessel","position":[18000,7000,0],"diameter":5000,"height":14000,"source":"虚构演示假设"},
+    {"id":"V-101","kind":"horizontal_vessel","position":[10000,-14000,0],"diameter":4000,"length":11000,"source":"虚构演示假设"},
+    {"id":"E-101","kind":"exchanger","position":[-8000,-14000,0],"diameter":2300,"length":8000,"source":"虚构演示假设"},
+    {"id":"P-101","kind":"pump","position":[0,-16000,0],"length":2700,"width":1800,"height":1900,"source":"虚构演示假设"},
+    {"id":"U-101","kind":"box","position":[25000,-14000,0],"length":7000,"width":6000,"height":5000,"source":"虚构演示假设"},
+    {"id":"RACK-01","kind":"pipe_rack","position":[0,-2000,0],"length":65000,"width":5000,"height":7000,"bays":10,"source":"虚构演示假设"},
+    {"id":"LINE-01","kind":"pipe","diameter":400,"points":[[-30000,14000,9000],[-30000,-1200,9000],[5000,-1200,9000],[5000,7000,9000]],"source":"虚构演示路径，未作配管设计"},
+    {"id":"LINE-02","kind":"pipe","diameter":300,"points":[[-14000,14000,8000],[-14000,600,8000],[18000,600,8000],[18000,7000,8000]],"color":[0.2,0.48,0.7],"source":"虚构演示路径与配色，不代表管道标识规范"},
+    {"id":"ROAD-01","kind":"road","width":6500,"points":[[-45000,-25000,0],[43000,-25000,0],[43000,27000,0]],"source":"虚构演示假设，非消防道路设计"},
+    {"id":"BUILDING-01","label":"公用工程","kind":"building","position":[30000,19000,0],"length":15000,"width":11000,"height":8500,"source":"虚构厂房演示假设"},
+    {"id":"FENCE-01","kind":"fence","height":2200,"points":[[-48000,-32000,0],[-48000,32000,0],[48000,32000,0],[48000,-32000,0],[-48000,-32000,0]],"source":"虚构厂界演示假设"}
+  ]
+}

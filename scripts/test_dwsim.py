@@ -89,7 +89,7 @@ def heater_model():
 class DwsimTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(server.app)
-        self.project_id = self.client.post('/v1/projects', json={'name': 'DWSIM 独立回归'}).json()['project']['projectId']
+        self.project_id = self.client.post('/v1/projects', json={'name': 'DWSIM 独立回归','workflow':'legacy'}).json()['project']['projectId']
         self.base = '/v1/projects/'+self.project_id
 
     def tearDown(self):

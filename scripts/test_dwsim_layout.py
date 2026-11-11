@@ -70,7 +70,7 @@ class PlacementTests(unittest.TestCase):
 class NativeLayoutTests(unittest.TestCase):
     def setUp(self):
         self.client=TestClient(server.app)
-        self.pid=self.client.post('/v1/projects',json={'name':'原生布局回归'}).json()['project']['projectId']
+        self.pid=self.client.post('/v1/projects',json={'name':'原生布局回归','workflow':'legacy'}).json()['project']['projectId']
         self.base='/v1/projects/'+self.pid
 
     def tearDown(self):

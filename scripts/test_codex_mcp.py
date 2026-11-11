@@ -53,13 +53,18 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
                "CHEMELLM_KERNEL_TOKEN": "inherited-dsh-token", "CHEMELLM_PHASE_GATE": "advisory"}
         parameters = StdioServerParameters(
             command=sys.executable,
-            args=["-X", "utf8", "-m", "chemellm_codex", "--workspace", str(ROOT),
-                  "--data-root", str(self.storage)],
+            args=(["-X", "utf8", str(ROOT/'scripts/fixtures/stdio_concurrency.py'), str(self.storage)]
+                  if getattr(self, 'concurrency_fixture', False) else
+                  ["-X", "utf8", "-m", "chemellm_codex", "--workspace", str(ROOT), "--data-root", str(self.storage)]),
             cwd=str(self.folder), env=env,
         )
         try:
             reader, writer = await self.stack.enter_async_context(stdio_client(parameters, errlog=self.log))
-            self.session = await self.stack.enter_async_context(ClientSession(reader, writer))
+            async def roots(context):
+                from mcp.types import ListRootsResult, Root
+                return ListRootsResult(roots=[Root(uri=(self.folder/'client root').as_uri())])
+            self.session = await self.stack.enter_async_context(ClientSession(reader, writer,
+                list_roots_callback=roots if getattr(self,'use_roots',False) else None))
             await self.session.initialize()
         except BaseException:
             await self.stack.aclose()
@@ -79,11 +84,71 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
                 self.temporary.cleanup()
 
     async def call(self, tool_name: str, **arguments) -> dict:
+        if tool_name == "chem_create_project":
+            arguments.setdefault("workflow", "legacy")
         response = await self.session.call_tool(tool_name, arguments)
         self.assertFalse(response.isError, response)
         if response.structuredContent is not None:
             return response.structuredContent
         return json.loads(response.content[0].text)
+
+    async def test_efficient_workflow_client_roots_and_summary_stdio(self):
+        self.use_roots = True
+        await self.start_session()
+        try:
+            result = await self.call('chem_project_init', request=dict(name='stdio efficient',task_kind='research',
+                requirements=[dict(code='R1',title='external report')],
+                deliverables=[dict(key='out',title='report',requirementCodes=['R1'],formats=['html'])]))
+            ident = result['project']['projectId']
+            trial = await self.call('chem_execute',project_id=ident,tool='convert_units',
+                args=dict(value=3600,from_unit='kg/h',to_unit='kg/s'))
+            self.assertTrue(trial['calculationId'])
+            root = self.folder/'client root';root.mkdir()
+            (root/'index.html').write_text('<p>protocol fixture</p>',encoding='utf-8')
+            registered = await self.call('chem_artifacts_register',project_id=ident,request=dict(root=str(root),
+                generator='stdio fixture',run_id='one',files=[dict(path='index.html',deliverable_keys=['out'])]))
+            self.assertEqual(registered['added'],1)
+            summary = await self.call('chem_project',project_id=ident)
+            self.assertNotIn('objects',summary['project']);self.assertLess(len(json.dumps(summary).encode()),32768)
+            page = await self.call('chem_records',project_id=ident,section='calculations',limit=1)
+            self.assertEqual(page['items'][0]['data']['actual_request']['value'],3600)
+            full = await self.session.read_resource('chemellm://projects/'+ident)
+            self.assertIn('calculations',json.loads(full.contents[0].text)['project'])
+            self.assertTrue((await self.call('chem_review',project_id=ident))['review']['ready'])
+            self.assertTrue((await self.call('chem_bundle',project_id=ident))['bundle']['sha256'])
+        finally:
+            await self.close_session()
+
+    async def test_concurrent_status_cancel_and_background_logs_pure_stdio(self):
+        self.concurrency_fixture = True
+        await self.start_session()
+        pending = None
+        try:
+            ident = (await self.call('chem_project_init',request=dict(name='protocol concurrency',task_kind='research')))['project']['projectId']
+            pending = asyncio.create_task(self.call('chem_execute',project_id=ident,tool='convert_units',
+                args=dict(value=1234567,from_unit='kg',to_unit='g')))
+            signal = self.storage/'projects'/ident/('dwsim-studies/'+'f'*32+'/study.json')
+            for _ in range(200):
+                if signal.exists():break
+                await asyncio.sleep(.025)
+            self.assertTrue(signal.exists())
+            self.assertFalse(pending.done())
+            await asyncio.wait_for(self.call('chem_project',project_id=ident),timeout=2)
+            status = await asyncio.wait_for(self.call('chem_dwsim_study',project_id=ident,
+                request=dict(action='status',job_id='f'*32)),timeout=2)
+            self.assertEqual(status['study']['status'],'running')
+            cancelled = await asyncio.wait_for(self.call('chem_dwsim_study',project_id=ident,
+                request=dict(action='cancel',job_id='f'*32)),timeout=2)
+            self.assertTrue(cancelled['study']['cancel_requested'])
+            result = await asyncio.wait_for(pending,timeout=5)
+            self.assertTrue(result['calculationId'])
+            self.log.flush()
+            log = (self.folder/'server.log').read_text(encoding='utf-8')
+            self.assertIn('protocol-fixture request log',log)
+            self.assertIn('protocol-fixture background log 29',log)
+        finally:
+            if pending and not pending.done():pending.cancel()
+            await self.close_session()
 
     @connected
     async def test_optional_tools_prepare_and_refuse_without_human_consent(self):
@@ -96,7 +161,7 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tools['chem_dependency_install'].inputSchema['properties']['confirmed']['default'])
         inventory = await self.call('chem_dependencies')
         self.assertEqual({item['dependency'] for item in inventory['dependencies']},
-                         {'dwsim', 'freecad', 'libreoffice', 'cantera'})
+                         {'dwsim', 'freecad', 'libreoffice', 'cantera', 'blender'})
         for item in inventory['dependencies']:
             self.assertIsInstance(item['ready'], bool)
             self.assertTrue(item['source'].startswith('https://'))
@@ -125,6 +190,71 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         status = await self.session.call_tool('chem_dependency_install_status', {'job_id': plan_id})
         self.assertTrue(status.isError)
         self.assertIn('422', status.content[0].text)
+
+    @connected
+    async def test_blender_real_stdio_export_and_artifact_hashes(self):
+        schema = await self.call('chem_tools', tool='export_blender')
+        self.assertIn('items', schema['schema']['required'])
+        status = (await self.call('chem_dependencies', dependency='blender'))['dependencies'][0]
+        if not status['ready']:
+            self.skipTest('Blender unavailable; schema and detection verified: '+json.dumps(status, ensure_ascii=False))
+        pid = (await self.call('chem_create_project', name='Blender 协议测试'))['project']['projectId']
+        await self.call('chem_requirements', project_id=pid, items=[{'code':'3D', 'title':'三维演示'}])
+        await self.call('chem_plan', project_id=pid, deliverables=[{'key':'scene', 'title':'场景',
+                        'requirementCodes':['3D'], 'formats':['blend','glb','png']}])
+        await self.call('chem_object', project_id=pid, kind='basis', key='demo', quantities=[
+            {'key':'length', 'value':2, 'unit':'m', 'origin':'assumption',
+             'conditions':'虚构测试', 'rationale':'演示假设'}])
+        result = await self.call('chem_execute', project_id=pid, tool='export_blender', args={
+            'items':[{'id':'B-1','kind':'box','length':2000,'width':1000,'height':3000,
+                      'source':'虚构协议测试'}], 'render':{'width':256,'height':144}})
+        self.assertTrue(result['result']['presentation_only'])
+        self.assertTrue({'blend','glb','png'} <= {a['kind'] for a in result['artifacts']})
+        for artifact in result['artifacts']:
+            path = Path(artifact['localPath'])
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), artifact['sha256'])
+        bundle = (await self.call('chem_bundle', project_id=pid))['bundle']
+        with zipfile.ZipFile(bundle['localPath']) as archive:
+            self.assertTrue(any(n.startswith('scenes/') and n.endswith('/scene.blend') for n in archive.namelist()))
+
+    @connected
+    async def test_basis_selection_priority_fallback_and_real_stdio_schema(self):
+        from test_basis_selection import candidate, quantity
+        tools = {t.name: t for t in (await self.session.list_tools()).tools}
+        self.assertIn('chem_basis_select', tools)
+        self.assertFalse(tools['chem_basis_select'].annotations.readOnlyHint)
+        schema = tools['chem_basis_select'].inputSchema
+        self.assertIn('expected_revision', schema['$defs']['BasisSelectionIn']['required'])
+        project_id = (await self.call('chem_create_project', name='数值选取协议回归'))['project']['projectId']
+        request = dict(kind='basis', key='feed', expected_revision=0, reason='测试无资料时继续补齐', quantities=[quantity()])
+        fallback = await self.call('chem_basis_select', project_id=project_id, request=request)
+        self.assertTrue(fallback['pending_review'])
+        self.assertTrue(fallback['object']['quantities'][0]['assumed'])
+        request.update(expected_revision=1, quantities=[quantity([candidate('user', 'user', 36, 't/h')])])
+        selected = await self.call('chem_basis_select', project_id=project_id, request=request)
+        self.assertEqual(selected['object']['quantities'][0]['value'], 10)
+        self.assertFalse(selected['pending_review'])
+        request.update(expected_revision=2, quantities=[quantity([candidate('later', value=3)])])
+        retained = await self.call('chem_basis_select', project_id=project_id, request=request)
+        self.assertEqual(retained['object']['quantities'][0]['source_type'], 'user')
+        self.assertEqual(len(retained['object']['selectionHistory']), 3)
+        request['expected_revision'] = 2
+        conflict = await self.session.call_tool('chem_basis_select', {'project_id': project_id, 'request': request})
+        self.assertTrue(conflict.isError)
+        self.assertIn('409', conflict.content[0].text)
+        resource = await self.session.read_resource(f'chemellm://projects/{project_id}')
+        project = json.loads(resource.contents[0].text)['project']
+        self.assertEqual(project['objects']['basis/feed'], retained['object'])
+        self.assertEqual(project['calculations'], [])
+        snapshot = self.storage/'.chem'/project_id/'objects'/'basis__feed.json'
+        self.assertEqual(json.loads(snapshot.read_text(encoding='utf-8')), retained['object'])
+        await self.call('chem_object', project_id=project_id, kind='basis', key='missing', quantities=[{
+            'key': 'flow', 'value': None, 'conditions': '', 'note': '尚无资料的旧占位项'}])
+        completed = await self.call('chem_basis_select', project_id=project_id, request=dict(
+            kind='basis', key='missing', expected_revision=1, reason='缺项继续补齐', quantities=[quantity()]))
+        self.assertEqual(completed['object']['quantities'][0]['value'], 8)
+        self.assertTrue(completed['pending_review'])
+        self.assertIsNone(completed['object']['quantities'][0]['selection']['legacy_quantity']['value'])
 
     @connected
     async def test_full_workflow_resources_and_artifact_hashes(self):

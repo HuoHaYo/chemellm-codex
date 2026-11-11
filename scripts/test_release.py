@@ -25,6 +25,15 @@ class ReleaseTests(unittest.TestCase):
             with zipfile.ZipFile(first) as archive:
                 root = first.stem + "/"
                 manifest = json.loads(archive.read(root + "release-manifest.json"))
+                self.assertEqual(manifest['workflowVersion'],2)
+                fingerprint=hashlib.sha256()
+                prefix=root+'codex-plugin/skills/chemellm-engineering/'
+                for name in sorted(n for n in archive.namelist() if n.startswith(prefix)):
+                    fingerprint.update(name.removeprefix(prefix).encode()+b'\0')
+                    fingerprint.update(hashlib.sha256(archive.read(name)).digest())
+                self.assertEqual(manifest['skillFingerprint'],fingerprint.hexdigest())
+                self.assertIn(root+'app/project_store.py',archive.namelist())
+                self.assertIn(root+'kernel/efficient.py',archive.namelist())
                 self.assertEqual(len(manifest["files"]) + 1, len(archive.namelist()))
                 for entry in manifest["files"]:
                     content = archive.read(root + entry["path"])

@@ -1,6 +1,6 @@
 # 对话中的可选工具安装
 
-插件不捆绑 DWSIM、FreeCAD、LibreOffice、Cantera 等外部软件。当前任务用到缺少的工具时，AI 先说明用途、具体安装理由和方案，再询问“是否安装？是/否”。用户明确同意后安装，验证接口可用后继续任务。用户拒绝或未回复时不启动安装；已有同意且方案未变化时不反复询问。不会因为检测到清单缺项就安装全部工具。
+插件不捆绑 DWSIM、FreeCAD、Blender、LibreOffice、Cantera 等外部软件。当前任务用到缺少的工具时，AI 先说明用途、具体安装理由和方案，再询问“是否安装？是/否”。用户明确同意后安装，验证接口可用后继续任务。用户拒绝或未回复时不启动安装；已有同意且方案未变化时不反复询问。不会因为检测到清单缺项就安装全部工具。
 
 例如，任务需要 DWSIM 求解物流和热负荷，但本机未检测到 DWSIM，AI 会展示软件来源、WinGet 安装方法、目标位置和可能的系统影响后提问。Cantera 用于已接入的化学平衡与反应动力学计算，安装目标为运行插件的 Python 虚拟环境。无需额外模型 API。
 
@@ -21,6 +21,7 @@
 | --- | --- | --- |
 | DWSIM | WinGet 源，准确 ID `DanWBR.DWSIM`；构建本仓库运行器 | Automation3 组分与物性包目录读取 |
 | FreeCAD | WinGet 源，准确 ID `FreeCAD.FreeCAD` | FreeCADCmd 启动、导入 FreeCAD 与 Part |
+| Blender | WinGet 源，准确 ID `BlenderFoundation.Blender` | 4.1+ 后台启动、glTF 导出接口和 Eevee；项目渲染另行验证 |
 | LibreOffice | WinGet 源，准确 ID `TheDocumentFoundation.LibreOffice` | 无界面启动并读取版本 |
 | Cantera | PyPI：`cantera==3.2.0`、`ruamel.yaml==0.18.16`，仅二进制包 | 当前插件解释器导入指定版本、载入 `h2o2.yaml` |
 

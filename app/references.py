@@ -95,11 +95,31 @@ class ReferenceSave(Inputs):
     brief: str | None = Field(default=None, max_length=200000, description='可选 Markdown 精简稿；省略则由当前结构化条目生成')
 
 
+class ImageCitation(Inputs):
+    page: int = Field(ge=1)
+    region: list[float] | None = Field(default=None, min_length=4, max_length=4, description='归一化区域 [left,top,right,bottom]；省略表示整页')
+
+    @model_validator(mode='after')
+    def valid_region(self):
+        if self.region is not None:
+            a,b,c,d = self.region
+            if not all(math.isfinite(x) and 0 <= x <= 1 for x in self.region) or not (a<c and b<d):
+                raise ValueError('图像引用区域无效')
+        return self
+
+
 class ReferenceUse(Inputs):
     reference_id: str = Field(pattern=r'^[a-f0-9]{64}$')
     revision: int = Field(ge=1)
-    block_ids: list[str] = Field(min_length=1, max_length=100, description='原文 b... 段落，或已保存的逐字转录 t-<条目key>；精简改写不能作为原文证据')
+    block_ids: list[str] = Field(default_factory=list, max_length=100, description='原文 b... 段落或 t- 逐字转录；图像使用 images')
+    images: list[ImageCitation] = Field(default_factory=list, max_length=50)
     purpose: str = Field(min_length=1, max_length=3000)
+
+    @model_validator(mode='after')
+    def has_reference(self):
+        if not self.block_ids and not self.images:
+            raise ValueError('至少引用一个原文段落或图像')
+        return self
 
 
 def _dump(value):
@@ -738,8 +758,31 @@ class ReferenceLibrary:
                 if not block or not block['text']:
                     raise ValueError('引用须选原文文字段落或 t- 前缀的逐字转录，精简稿/图像锚点不能冒充原文：'+block_id)
                 selected.append(block)
+            image_payloads = {}
+            image_pins = []
+            for i, image in enumerate(request.images):
+                rendered = self._render(request.reference_id, meta, image.page)
+                content = rendered.read_bytes()
+                if image.region:
+                    from PIL import Image
+                    import io
+                    with Image.open(io.BytesIO(content)) as source:
+                        w,h = source.size
+                        crop = source.crop((int(image.region[0]*w), int(image.region[1]*h),
+                                            int(image.region[2]*w), int(image.region[3]*h)))
+                        buffer = io.BytesIO(); crop.save(buffer, format='PNG'); crop.close()
+                        content = buffer.getvalue()
+                name = 'images/'+str(i+1)+'.png'
+                digest = _hash(content)
+                image_payloads[name] = content
+                image_pins.append(dict(page=image.page, region=image.region, sha256=digest))
+                selected.append(dict(id='image-'+str(i+1), kind='visual_reference', text='',
+                    locator={'page': image.page, 'region': image.region}, image_sha256=digest,
+                    image_path=name, interpretation_review_required=True, ocr=False))
             pin = {'reference_id': request.reference_id, 'revision': revision,
                    'block_ids': sorted(request.block_ids), 'purpose': request.purpose}
+            if image_pins:
+                pin['images'] = image_pins
             use_id = _hash(_dump({'project_id': project_id, **pin}).encode())[:32]
             folder = config.ARTIFACTS/use_id
             folder.mkdir(parents=True, exist_ok=True)
@@ -749,7 +792,7 @@ class ReferenceLibrary:
             snapshot_id = use_id
             source_metadata = {'shared_reference': pin, 'fulltext_source': {'source_url': document['source']['url']},
                                'source_notes': document['source'], 'retrieved_at': meta['created_at']}
-            payloads = {'original/'+meta['original_name']: original.read_bytes(),
+            payloads = {**image_payloads, 'original/'+meta['original_name']: original.read_bytes(),
                         'source.json': (_dump(document['source'])+'\n').encode(),
                         'organized.json': (_dump(document['content'])+'\n').encode(),
                         'brief.md': document['brief'].encode(),
@@ -788,4 +831,6 @@ class ReferenceLibrary:
             return {'use_id': use_id, **pin, 'snapshot_id': snapshot_id, 'artifact_id': original_id,
                     'source_sha256': request.reference_id, 'artifacts': artifacts,
                     'citations': [{'snapshot_id': snapshot_id, 'block_id': block['id'],
-                                   'locator': block['locator'], 'ocr': block.get('ocr', False)} for block in selected]}
+                                   'locator': block['locator'], 'ocr': block.get('ocr', False),
+                                   'kind': block.get('kind'), 'image_sha256': block.get('image_sha256'),
+                                   'exact_text_available': bool(block.get('text'))} for block in selected]}

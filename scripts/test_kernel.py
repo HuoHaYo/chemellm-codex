@@ -50,7 +50,7 @@ def price_item(key='equipment-E-101', **updates):
 class KernelWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app, headers={"x-kernel-token": "regression-token"})
-        created = self.client.post("/v1/projects", json={"name": "重构回归"})
+        created = self.client.post("/v1/projects", json={"name": "重构回归", "workflow": "legacy"})
         self.assertEqual(created.status_code, 200, created.text)
         self.base = "/v1/projects/" + created.json()["project"]["projectId"]
 
@@ -110,6 +110,71 @@ class KernelWorkflowTests(unittest.TestCase):
         response = self.client.get(self.base + '/prices')
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()['prices']
+
+    def test_basis_selection_provenance_history_and_stale_writes(self):
+        from test_basis_selection import candidate, quantity
+        request = dict(kind='basis', key='feed', expected_revision=0, reason='测试假设补齐', quantities=[quantity()])
+        first = self.post('/basis/select', request)
+        self.assertEqual(first['object']['quantities'][0]['origin'], 'assumption')
+        self.assertTrue(first['pending_review'][0]['sensitivity_required'])
+        self.assertFalse(first['solver_executed'])
+        self.assertEqual(self.client.get(self.base).json()['project']['calculations'], [])
+        stale = self.client.post(self.base+'/basis/select', json=request)
+        self.assertEqual(stale.status_code, 409)
+        request.update(expected_revision=1, quantities=[quantity([candidate('user', 'user', 36, 't/h')])])
+        second = self.post('/basis/select', request)
+        self.assertEqual(second['object']['quantities'][0]['value'], 10)
+        self.assertFalse(second['pending_review'])
+        request.update(expected_revision=2, quantities=[quantity([candidate('next-fallback', value=4)])])
+        third = self.post('/basis/select', request)
+        self.assertEqual(third['object']['quantities'][0]['value'], 10)
+        self.assertEqual(len(third['object']['selectionHistory']), 3)
+        bad = self.client.post(self.base+'/objects', json=dict(kind='basis', key='feed', quantities=[{
+            'key': 'flow', 'value': 1, 'unit': 'kg/s', 'origin': 'assumption'}]))
+        self.assertEqual(bad.status_code, 409)
+        request.update(expected_revision=3, quantities=[quantity([candidate('wrong-unit', unit='m')])])
+        bad = self.client.post(self.base+'/basis/select', json=request)
+        self.assertEqual(bad.status_code, 422)
+        current = self.client.get(self.base).json()['project']['objects']['basis/feed']
+        self.assertEqual(current, third['object'])
+        archive = self.post('/bundle', {})
+        data = self.client.get('/v1/bundles/'+archive['bundle']['name']).content
+        with zipfile.ZipFile(io.BytesIO(data)) as zipped:
+            project_paths = [p for p in zipped.namelist() if p.endswith('project.json')]
+            self.assertTrue(any(json.loads(zipped.read(p)).get('objects', {}).get('basis/feed') == current for p in project_paths))
+
+    def test_assumed_basis_warns_without_blocking_design_and_validates_calculation_link(self):
+        from test_basis_selection import quantity, derived
+        self.post('/requirements', {'items': [{'code': 'R1', 'title': '缺项以假设继续设计'}]})
+        self.post('/plan', {'deliverables': [{'key': 'report', 'title': '报告', 'requirementCodes': ['R1'], 'formats': ['md']}]})
+        req = dict(kind='basis', key='feed', expected_revision=0, reason='测试补齐', quantities=[quantity()])
+        self.post('/basis/select', req)
+        calculation = self.post('/execute', {'tool': 'properties', 'args': {'compound': 'water'}})
+        supported = derived()
+        supported['derivation']['calculation_id'] = calculation['calculationId']
+        req.update(expected_revision=1, quantities=[quantity([supported])])
+        self.post('/basis/select', req)
+        assumed = derived('assumed', assumed=True)
+        req.update(expected_revision=2, quantities=[quantity([assumed], exclusions={'derived': '演示替换场景'})])
+        self.post('/basis/select', req)
+        self.post('/execute', {'tool': 'export_report', 'args': {'title': '测试报告', 'body': '合成回归数据', 'formats': ['md']}})
+        review = self.post('/review', {})['review']
+        self.assertTrue(review['ready'], review)
+        self.assertEqual(len(review['basis_pending']), 1)
+        self.assertTrue(review['warnings'])
+        self.assertEqual(review['professionalReview'], 'not_reviewed')
+        unknown = derived('not-linked')
+        unknown['derivation']['calculation_id'] = 'nonexistent'
+        req.update(expected_revision=3, quantities=[quantity([unknown])])
+        self.assertEqual(self.client.post(self.base+'/basis/select', json=req).status_code, 422)
+        # An existing failed calculation is not a valid substitute for missing data.
+        from kernel import server
+        project = server.load_project(self.base.rsplit('/', 1)[1])
+        project['calculations'].append(dict(calculationId='failed-result', tool='test', validation={'passed': False}))
+        server.save_project(project)
+        unknown['derivation']['calculation_id'] = 'failed-result'
+        req['quantities'] = [quantity([unknown])]
+        self.assertEqual(self.client.post(self.base+'/basis/select', json=req).status_code, 422)
 
     def save_prices(self, items, revision, **updates):
         return self.post('/prices', {'items': items, 'expected_revision': revision,
@@ -298,7 +363,7 @@ class KernelWorkflowTests(unittest.TestCase):
 class ReferenceLibraryTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app, headers={'x-kernel-token': 'regression-token'})
-        self.project_id = self.client.post('/v1/projects', json={'name': '资料库回归'}).json()['project']['projectId']
+        self.project_id = self.client.post('/v1/projects', json={'name': '资料库回归', 'workflow': 'legacy'}).json()['project']['projectId']
         self.source = {'title': '合成测试资料 '+self.project_id, 'source': '回归测试生成，非工程标准', 'notes': '测试适用范围'}
 
     def tearDown(self):

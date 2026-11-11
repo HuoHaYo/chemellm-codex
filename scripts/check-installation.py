@@ -30,12 +30,17 @@ async def check(config_path: Path) -> None:
                 health = response.structuredContent or json.loads(response.content[0].text)
                 assert Path(health["dataDir"]).resolve() == Path(temporary).resolve(), health
                 assert health["phaseGate"] == "enforce", health
+                assert health['workflowVersion'] == 2, health
+                assert health['skillPairing'] == 'matched', health
+                plugin = json.loads((ROOT/'codex-plugin/.codex-plugin/plugin.json').read_text(encoding='utf-8'))
+                assert health['version'] == plugin['version'], health
                 tools = await session.list_tools()
                 names = {tool.name for tool in tools.tools}
-                assert {"chem_execute", "chem_project", "chem_review", "chem_bundle", "chem_dwsim_study", "chem_dwsim_publish"} <= names
+                assert {"chem_execute", "chem_project", "chem_review", "chem_bundle", "chem_dwsim_study", "chem_dwsim_publish",
+                        'chem_project_init','chem_artifacts_register','chem_records'} <= names
                 model_schema=next(tool for tool in tools.tools if tool.name=='chem_dwsim').inputSchema
                 assert 'check' in str(model_schema), 'DWSIM preflight action missing'
-                print(f"MCP startup OK; {len(names)} tools found; isolated storage and phase gate OK.")
+                print(f"MCP startup OK; {len(names)} tools; isolated storage, workflow and skill/kernel pairing OK.")
 
 
 def main() -> None:

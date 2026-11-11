@@ -21,10 +21,13 @@ import uuid
 
 from pydantic import Field
 from app.schemas import Inputs
-from app.external_tools import find_dwsim_home, find_freecad, find_libreoffice
+from app.external_tools import find_dwsim_home, find_freecad, find_libreoffice, blender_status
 from app.pricing import _atomic
 
 CATALOG = {
+    'blender': {'name': 'Blender', 'package_id': 'BlenderFoundation.Blender',
+                'purpose': '生成化工厂演示场景、原生 blend、GLB 和 PNG；CAD 导入另需 FreeCAD。',
+                'source': 'https://www.blender.org/download/', 'license': 'GPL-3.0-or-later，按发行包核对'},
     'dwsim': {'name': 'DWSIM', 'package_id': 'DanWBR.DWSIM',
               'purpose': '执行稳态流程仿真，求解物流、热负荷和单元操作。',
               'source': 'https://dwsim.org/wiki/index.php?title=Downloads', 'license': 'GPL-3.0，按发行包核对'},
@@ -63,7 +66,9 @@ def probe(dependency: str) -> dict:
     if dependency not in CATALOG:
         raise ValueError('未知可选工具；支持：'+', '.join(CATALOG))
     result = {'dependency': dependency, **CATALOG[dependency]}
-    if dependency == 'cantera':
+    if dependency == 'blender':
+        result.update(blender_status())
+    elif dependency == 'cantera':
         code = (
             "import json,importlib.util; available=importlib.util.find_spec('cantera') is not None; "
             "print(json.dumps({'installed':False,'ready':False})) if not available else None; "
@@ -265,6 +270,11 @@ class DependencyManager:
         return env
 
     def _verify(self, dependency, state, logs):
+        if dependency == 'blender':
+            if not state.get('ready'):
+                raise RuntimeError('Blender 后台/glTF/Eevee 接口检查失败')
+            return {'passed': True, 'version': state.get('version'),
+                    'scope': 'Blender 后台启动、glTF 导出接口及 Eevee 引擎；项目渲染另行验证'}
         if dependency == 'cantera':
             return {'passed': True, 'scope': '当前插件解释器导入固定版本 Cantera 并载入 h2o2.yaml', 'version': state.get('version')}
         if dependency == 'dwsim':

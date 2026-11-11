@@ -7,9 +7,9 @@ of rewriting them.
 
 Design rules:
 - loopback only (127.0.0.1), optional shared token;
-- project state is local JSON under ``data/projects/<id>/project.json``;
-- the archived SQLite database is used only as the calculation/artifact store;
-- every mutating call also refreshes a read-only snapshot under ``<repo>/.chem``.
+- new project state is versioned in SQLite; old projects keep their JSON backend;
+- calculations and artifacts reuse the existing stores;
+- new snapshots write only changed records, with shared text references.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +52,7 @@ from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
+from pint.errors import PintError  # noqa: E402
 
 from app.db import connection, execute, init_db, now, one, rows, uid  # noqa: E402
 from app.documents import artifact_record, ingest as old_ingest  # noqa: E402
@@ -69,6 +71,7 @@ import cad_engineering  # noqa: E402
 from app.toolbox import SCHEMAS, run_tool  # noqa: E402
 from app.catalog import TOOLS  # noqa: E402
 from app.pricing import PriceBook, PriceWrite, PriceConflict  # noqa: E402
+from app.basis_selection import BasisSelectionIn, apply_selection, selection_pending  # noqa: E402
 from app.references import ReferenceLibrary, ReferenceImport, ReferenceSave, ReferenceUse, ReferenceConflict  # noqa: E402
 from app.dwsim import DwsimInput  # noqa: E402
 from app.dwsim_validation import preflight as dwsim_preflight, validate as dwsim_validate, model_preflight  # noqa: E402
@@ -76,17 +79,35 @@ from app.dwsim_workflows import StudyInput, PublishInput, metric_value, native_u
 from kernel.dwsim_studies import Studies, ProjectBusy  # noqa: E402
 from app.external_tools import find_freecad, find_libreoffice  # noqa: E402
 from kernel.dependencies import DependencyManager, DependencyPrepare, DependencyInstall  # noqa: E402
+from app.blender import BlenderInput  # noqa: E402
+from app import project_store, efficiency  # noqa: E402
+from kernel import blender_bridge  # noqa: E402
 
 import app.documents as _legacy_documents  # noqa: E402
 
-KERNEL_VERSION = "0.1.0"
+from chemellm_codex import __version__ as KERNEL_VERSION, skill_fingerprint
 PHASE_GATE = os.getenv("CHEMELLM_PHASE_GATE", "advisory").lower()
 KERNEL_TOKEN = os.getenv("CHEMELLM_KERNEL_TOKEN", "")
 MAX_INTAKE = 25 * 1024 * 1024
+MAX_BUNDLE_ARTIFACT = 256 * 1024 * 1024
 MAX_TOOL_RESULT = 40000
 _write_lock = threading.RLock()
 REFERENCE_LIBRARY = ReferenceLibrary(DATA_ROOT, ROOT)
 DEPENDENCIES = DependencyManager(DATA_ROOT, ROOT)
+_client_roots: list[Path] = []
+
+
+def task_roots():
+    configured = json.loads(os.getenv('CHEMELLM_ALLOWED_ROOTS', '[]'))
+    return list(dict.fromkeys([ROOT.resolve(), DATA_ROOT.resolve(), *[Path(p).resolve() for p in configured], *_client_roots]))
+
+
+def record_metrics(stage, values):
+    # Measurements contain timings/counts only; never inputs, secrets or stdout.
+    target = KERNEL_DATA/'metrics'/'efficiency.jsonl'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with _write_lock, target.open('a', encoding='utf-8') as stream:
+        stream.write(json.dumps({'stage': stage, **values}, ensure_ascii=False)+'\n')
 
 # LibreOffice conversion with a fixed, normally-permissioned profile directory.
 # The archived implementation uses Python's mkdtemp for the profile, which some
@@ -129,7 +150,7 @@ CALC_TOOLS = {
     "frontend_process", "wet_column", "wet_separation_train", "recycle_process", "fit_data",
     "cantera_equilibrium", "cantera_reactor", "dwsim",
 }
-SPECIAL_TOOLS = {"export_xlsx", "export_freecad", "pid", "pid_check", "pid_data",
+SPECIAL_TOOLS = {"export_blender", "export_xlsx", "export_freecad", "pid", "pid_check", "pid_data",
                  "cad_part", "equipment_datasheet", "relief_sizing", "hazop_lopa",
                  "compliance_matrix", "dwsim"}
 GENERATE_TOOLS = {"export_report", "pfd"}
@@ -144,6 +165,7 @@ MIN_PHASE = {
     **{name: "basis" for name in GENERATE_TOOLS},
     "export_xlsx": "basis",
     "export_freecad": "basis",
+    "export_blender": "basis",
     "pid": "basis",
     "pid_data": "basis",
     "equipment_datasheet": "basis",
@@ -157,6 +179,7 @@ MIN_PHASE = {
 }
 
 init_db()
+project_store.init()
 
 app = FastAPI(title="ChemELLM local kernel", version=KERNEL_VERSION)
 
@@ -197,15 +220,21 @@ def load_project(project_id: str) -> dict:
     if not path.is_file():
         raise HTTPException(status_code=404, detail="项目不存在：" + project_id)
     with _write_lock:
-        project = json.loads(path.read_text(encoding="utf-8"))
+        project = project_store.load(project_id) if project_store.exists(project_id) else json.loads(path.read_text(encoding="utf-8"))
         if (project_dir(project_id) / 'prices').exists():
             try:
                 with DWSIM_STUDIES.guard(project_id):sync_prices(project)
-            except ProjectBusy as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
+            except ProjectBusy as exc:
+                if project.get('workflow') != 'efficient':
+                    raise HTTPException(status_code=409,detail=str(exc)) from exc
         return project
 
 
 def derive_phase(project: dict) -> str:
+    if project.get('workflow') == 'efficient':
+        if project.get('review', {}).get('ready'):
+            return 'done' if project.get('bundle') else 'bundle'
+        return 'review' if project.get('files') else 'execute'
     requirements = project.get("requirements") or []
     plan = project.get("plan") or {}
     objects = [o for o in (project.get("objects") or {}).values() if o.get("quantities")]
@@ -262,6 +291,30 @@ def save_project(project: dict) -> dict:
     project["phase"] = derive_phase(project)
     path = project_file(project["id"])
     path.parent.mkdir(parents=True, exist_ok=True)
+    if project.get('workflow') == 'efficient':
+        try:
+            changes, texts, metrics = project_store.save(project)
+        except project_store.StoreConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # This is a discoverable descriptor; full JSON is materialized at export.
+        from app.pricing import _atomic
+        _atomic(path, {'id': project['id'], 'name': project['name'], 'workflow': 'efficient',
+                       'storage': 'sqlite', 'revision': project['_store_revision']})
+        folder = SNAPSHOT_DIR / project['id']
+        _atomic(folder/'project.json', efficiency.summary(project))
+        for digest, value in texts.items():
+            shared = folder/'texts'/(digest+'.json')
+            if not shared.exists():
+                _atomic(shared, value)
+        for section, key, value in changes:
+            safe_key = hashlib.sha256(key.encode()).hexdigest()
+            target = folder/section/(safe_key+'.json')
+            if value is None:
+                target.unlink(missing_ok=True)
+            else:
+                _atomic(target, value)
+        record_metrics('storage', metrics)
+        return project
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
@@ -397,6 +450,7 @@ def _truncate_result(result: Any) -> dict:
 # --------------------------------------------------------------------------- #
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    workflow: str = Field(default='efficient', pattern='^(efficient|legacy)$')
 
 
 class RequirementItem(BaseModel):
@@ -443,6 +497,8 @@ class ObjectIn(BaseModel):
 class ExecuteIn(BaseModel):
     tool: str = Field(min_length=1, max_length=60)
     args: dict = Field(default_factory=dict)
+    deliverable_keys: list[str] = Field(default_factory=list, max_length=100)
+    basis_keys: list[str] = Field(default_factory=list, max_length=100)
 
 
 class IntakeIn(BaseModel):
@@ -459,8 +515,11 @@ def project_write(function):
     from functools import wraps
     @wraps(function)
     def guarded(project_id,*args,**kwargs):
+        acquiring = time.perf_counter()
         try:
-            with DWSIM_STUDIES.guard(project_id):return function(project_id,*args,**kwargs)
+            with DWSIM_STUDIES.guard(project_id):
+                record_metrics('lock', {'lock_wait_ms': round((time.perf_counter()-acquiring)*1000, 3), 'acquired':True})
+                return function(project_id,*args,**kwargs)
         except ProjectBusy as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
     return guarded
 
@@ -477,8 +536,16 @@ async def kernel_token(request: Request, call_next):
     return await call_next(request)
 
 
+@app.exception_handler(ProjectBusy)
+async def project_busy_handler(request, exc):
+    return JSONResponse({'detail': str(exc)}, status_code=409)
+
+
 @app.get("/v1/health")
 def health():
+    skill = ROOT/'codex-plugin/skills/chemellm-engineering'
+    fingerprint = skill_fingerprint(skill)
+    expected = os.getenv('CHEMELLM_SKILL_FINGERPRINT')
     return {
         "ok": True,
         "version": KERNEL_VERSION,
@@ -487,6 +554,13 @@ def health():
         "referenceDir": str(REFERENCE_LIBRARY.root),
         "dwsim": dwsim_bridge.status(),
         "projectCount": len(list(PROJECTS_DIR.glob("*/project.json"))),
+        "workflowVersion": 2,
+        "capabilities": ['project_init', 'artifacts_register', 'source_groups', 'records', 'image_citations', 'sqlite_projects',
+                         'automatic_capture','adopted_review','mcp_roots','parallel_status_cancel','incremental_snapshots'],
+        "skillFingerprint": fingerprint,
+        "expectedSkillFingerprint": expected,
+        "skillPairing": 'matched' if expected == fingerprint else ('mismatch' if expected else 'unconfigured'),
+        "allowedRoots": [str(p) for p in task_roots()],
     }
 
 
@@ -494,7 +568,7 @@ def health():
 def tools():
     return {
         "tools": TOOLS,
-        "schemas": {name: schema.model_json_schema() for name, schema in {**SCHEMAS, 'dwsim': DwsimInput}.items()},
+        "schemas": {name: schema.model_json_schema() for name, schema in {**SCHEMAS, 'dwsim': DwsimInput, 'export_blender': BlenderInput}.items()},
         "executable": sorted(list(SCHEMAS.keys() - {"ask_user", "acceptance"}) + list(SPECIAL_TOOLS)),
         "calcTools": sorted(CALC_TOOLS),
         "generateTools": sorted(GENERATE_TOOLS),
@@ -598,7 +672,9 @@ def list_projects():
     result = []
     for path in sorted(PROJECTS_DIR.glob("*/project.json")):
         try:
-            result.append(summary_of(json.loads(path.read_text(encoding="utf-8"))))
+            state = json.loads(path.read_text(encoding='utf-8'))
+            result.append(efficiency.summary(project_store.metadata(state['id']))
+                          if state.get('storage') == 'sqlite' else summary_of(state))
         except (OSError, ValueError):
             continue
     result.sort(key=lambda item: item.get("updatedAt") or "", reverse=True)
@@ -620,17 +696,38 @@ def create_project(p: ProjectCreate):
         "files": [],
         "review": {},
         "bundle": None,
+        "workflow": p.workflow,
+        **({'task_kind': 'design', 'schema_version': 2} if p.workflow == 'efficient' else {}),
     }
     with _write_lock:
         project["phase"] = derive_phase(project)
         save_project(project)
         ensure_legacy_project(project)
-    return {"ok": True, "project": summary_of(project)}
+    return {"ok": True, "project": efficiency.summary(project) if p.workflow == 'efficient' else summary_of(project)}
 
 
 @app.get("/v1/projects/{project_id}")
-def get_project(project_id: str):
+def get_project(project_id: str, view: str | None = None):
+    if view not in {None, 'summary', 'full'}:
+        raise HTTPException(status_code=422, detail='view 须为 summary/full')
+    if project_store.exists(project_id) and view != 'full':
+        project = project_store.metadata(project_id)
+        if (project_dir(project_id)/'prices').exists():
+            # Only materialize objects if a validated local price edit changed state.
+            try:
+                with DWSIM_STUDIES.guard(project_id):
+                    prices = PriceBook(project_dir(project_id)/'prices').read()
+                    if prices != project.get('prices'):
+                        load_project(project_id)
+                        project = project_store.metadata(project_id)
+            except ProjectBusy:
+                pass
+            except (PriceConflict, ValueError) as exc:
+                raise HTTPException(409, str(exc)) from exc
+        return {'ok': True, 'project': efficiency.summary(project), 'summary': efficiency.summary(project)}
     project = load_project(project_id)
+    if view == 'summary':
+        return {'ok': True, 'project': efficiency.summary(project), 'summary': efficiency.summary(project)}
     return {"ok": True, "project": project, "summary": summary_of(project)}
 
 
@@ -746,6 +843,10 @@ def save_object(project_id: str, p: ObjectIn):
     objects = project.setdefault("objects", {})
     storage_key = p.kind + "/" + p.key
     previous = objects.get(storage_key) or {}
+    incoming = {q.get('key'): q for q in p.quantities}
+    for q in previous.get('quantities', []):
+        if q.get('selection') and incoming.get(q['key']) != q:
+            raise HTTPException(status_code=409, detail='已选取数值请用 chem_basis_select 更新，保留候选、用户数据及选取历史')
     revision = int(previous.get("revision") or 0) + 1
     objects[storage_key] = {
         "kind": p.kind,
@@ -757,16 +858,67 @@ def save_object(project_id: str, p: ObjectIn):
         "revision": revision,
         "updatedAt": _utc(),
     }
+    if previous.get('selectionHistory'):
+        objects[storage_key]['selectionHistory'] = previous['selectionHistory']
     project["review"] = {}
     with _write_lock:
         save_project(project)
     return {"ok": True, "phase": project["phase"], "object": objects[storage_key]}
 
 
+@app.post('/v1/projects/{project_id}/basis/select')
+@project_write
+def select_basis(project_id: str, p: BasisSelectionIn):
+    project = load_project(project_id)
+    objects = project.setdefault('objects', {})
+    storage_key = p.kind + '/' + p.key
+    previous = objects.get(storage_key) or {}
+    if p.expected_revision != int(previous.get('revision') or 0):
+        raise HTTPException(status_code=409, detail='工程对象版本已变化；先读取当前对象及候选再合并选取')
+    try:
+        from app.basis_selection import expand_request
+        p, source_groups = expand_request(p, project)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    calculations = {c['calculationId']: c for c in project.get('calculations', []) if c.get('calculationId')}
+    for q in p.quantities:
+        for candidate in q.candidates:
+            derivation = candidate.derivation
+            if derivation and derivation.calculation_id:
+                record = calculations.get(derivation.calculation_id)
+                if not record:
+                    raise HTTPException(status_code=422, detail='推算引用的计算不属于本项目或不存在')
+                if (record.get('validation') or {}).get('passed') is False:
+                    raise HTTPException(status_code=422, detail='推算不能采用校核失败的计算结果；修正计算或采用另有依据的候选继续设计')
+                if record.get('tool') == 'dwsim':
+                    raw = one('SELECT result FROM calculations WHERE project_id=? AND id=?', (project_id, derivation.calculation_id))
+                    result = json.loads(raw['result']) if raw else {}
+                    if result.get('solved') is not True or result.get('validation', {}).get('passed') is not True:
+                        raise HTTPException(status_code=422, detail='DWSIM推算来源必须同时满足 solved=true 和 validation.passed=true')
+    try:
+        selected = apply_selection(previous, p, _utc())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    objects[storage_key] = selected
+    project['source_groups'] = source_groups
+    project['review'] = {}
+    project['bundle'] = None
+    with _write_lock:
+        save_project(project)
+    if project.get('workflow') == 'efficient':
+        return dict(ok=True, object_key=storage_key, revision=selected['revision'],
+                    changed_quantities=len(p.quantities), source_groups={k:v['revision'] for k,v in list(source_groups.items())[:20]},
+                    source_group_count=len(source_groups), solver_executed=False)
+    return dict(ok=True, phase=project['phase'], object=selected,
+                pending_review=selection_pending([selected]), solver_executed=False)
+
+
 # --------------------------------------------------------------------------- #
 # execute archived tools
 # --------------------------------------------------------------------------- #
 def _gate_check(project: dict, tool: str) -> str | None:
+    if project.get('workflow') == 'efficient':
+        return None
     minimum = MIN_PHASE.get(tool)
     if not minimum:
         return None
@@ -993,6 +1145,39 @@ def _layout_preview_svg(items: list[dict], title: str = "三维设备布置 · �
     )
 
 
+def export_blender(project: dict, args: dict) -> dict:
+    try:
+        request = BlenderInput.model_validate(args)
+        blender_bridge.validate_sources(request, project, ROOT, DATA_ROOT, task_roots())
+    except blender_bridge.SceneConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)[:2000]) from exc
+    from kernel.dependencies import probe
+    for dependency in ['blender']+(['freecad'] if any(i.kind == 'cad' for i in request.items) else []):
+        state = probe(dependency)
+        if not state['ready']:
+            raise HTTPException(status_code=409, detail={'code': 'optional_dependency_required',
+                'dependency': dependency, 'state': state,
+                'next_step': '先检测或修复已有工具；确实缺少时准备安装方案并取得用户同意。'})
+    folder = KERNEL_DATA/'artifacts'/uid()
+    try:
+        report = blender_bridge.build_scene(request, project, ROOT, DATA_ROOT, folder, task_roots())
+    except blender_bridge.BlenderFailure as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    records = []
+    for path in sorted(folder.rglob('*')):
+        if not path.is_file():
+            continue
+        metadata = {'source': 'kernel export_blender', 'presentation_only': True,
+                    'scene_group': folder.name, 'scene_path': path.relative_to(folder).as_posix()}
+        preview = str(folder/'preview.png') if path.name in {'scene.blend', 'scene.glb'} else None
+        records.append(artifact_record(project['id'], path, preview=preview,
+                                      metadata={**metadata, 'preview_mode': 'visual' if preview else None}))
+    return {'artifacts': records, 'engine': 'Blender', 'version': report['version'],
+            'presentation_only': True, 'report': report, 'warnings': report['warnings']}
+
+
 def export_freecad(project: dict, args: dict) -> dict:
     executable = _freecad_executable()
     if not executable:
@@ -1060,7 +1245,7 @@ def run_dwsim(project: dict, args: dict) -> dict:
         if request.flowsheet_path:
             source = Path(request.flowsheet_path).expanduser()
             source = (ROOT/source).resolve() if not source.is_absolute() else source.resolve()
-            roots = [ROOT.resolve(), DATA_ROOT.resolve()]
+            roots = task_roots()
             home = dwsim_bridge.find_home()
             if home:
                 roots.append((home/'samples').resolve())
@@ -1100,7 +1285,12 @@ def run_dwsim(project: dict, args: dict) -> dict:
                     'note':'输入存在明确缺项，尚未构建原生模型'}
         else:
             raw_native=folder/'DWSIM计算流程.dwxmz' if request.layout is not None or output_format=='dwxml' else native_path
-            result = dwsim_bridge.invoke(request, folder/'work', save_path=raw_native if request.action not in {'inspect', 'check'} else None)
+            native_started = time.perf_counter()
+            try:
+                result = dwsim_bridge.invoke(request, folder/'work', save_path=raw_native if request.action not in {'inspect', 'check'} else None)
+            finally:
+                record_metrics('solver', {'native_runner_ms':round((time.perf_counter()-native_started)*1000,3),
+                    'solver_executed':request.action in {'create','run'}, 'action':request.action})
         result['input_source'] = source_meta
         result['executed_at'] = _utc()
         if request.action == 'check':
@@ -1159,6 +1349,8 @@ def run_dwsim(project: dict, args: dict) -> dict:
         result['model'] = 'DWSIM Automation3 steady-state'
         result['basis_keys'] = request.basis_keys
         result['basis_revisions']={key:project['objects'][key].get('revision') for key in request.basis_keys}
+        result['source_group_revisions']={q['source_group']:q.get('source_group_revision')
+            for key in request.basis_keys for q in project['objects'][key].get('quantities',[]) if q.get('source_group')}
         result['run_context'] = request.run_context
         result['warnings'] = [
             '物性包、二元参数及单元设置须结合体系核对；本接口执行稳态求解。',
@@ -1519,11 +1711,58 @@ def export_cad_part(project: dict, args: dict) -> dict:
 @project_write
 def execute_tool(project_id: str, p: ExecuteIn):
     with DWSIM_STUDIES.guard(project_id):
-        return _execute_tool(project_id,p)
+        project = load_project(project_id)
+        execution_id = None
+        if project.get('workflow') == 'efficient' and p.tool in (CALC_TOOLS | SPECIAL_TOOLS | GENERATE_TOOLS) and not (
+                p.tool == 'dwsim' and p.args.get('action') in {'status','catalog','inspect','check','layout'}):
+            execution_id = uid()
+            declared = p.args.get('basis_keys', [])
+            declared = declared if isinstance(declared,list) else []
+            frozen = {'request':p.model_dump(), 'project_revision':project['_store_revision'],
+                      'basis_revisions':{key:project.get('objects',{}).get(key,{}).get('revision')
+                          for key in set(key for key in p.basis_keys+declared if isinstance(key,str))}}
+            execute('INSERT INTO runs VALUES(?,?,?,?,?,?,?)',
+                (execution_id, project_id, 'running', json.dumps(frozen,ensure_ascii=False), '{}', now(), now()))
+        try:
+            result = _execute_tool(project_id,p,project,execution_id)
+            if execution_id:
+                execute('UPDATE runs SET status=?,result=?,updated_at=? WHERE id=?',
+                    ('completed', json.dumps({'calculationId':result.get('calculationId')}), now(), execution_id))
+                result['execution_id'] = execution_id
+            return result
+        except HTTPException as exc:
+            if execution_id:
+                execute('UPDATE runs SET status=?,result=?,updated_at=? WHERE id=?',
+                    ('failed', json.dumps({'error':str(exc.detail)}), now(), execution_id))
+            project = load_project(project_id)
+            if project.get('workflow') != 'efficient' or p.tool not in (set(SCHEMAS) | SPECIAL_TOOLS):
+                raise
+            if isinstance(exc.detail, dict) and exc.detail.get('code') == 'optional_dependency_required':
+                raise
+            ident = uid()
+            result = {'error': str(exc.detail), 'validation': {'passed': False}, 'failed': True}
+            execute('INSERT INTO calculations VALUES(?,?,?,?,?,?)',
+                    (ident, project_id, p.tool, json.dumps(p.args), json.dumps(result), now()))
+            project.setdefault('calculations', []).append(dict(calculationId=ident, tool=p.tool, args=p.args,
+                execution_id=execution_id, createdAt=_utc(), validation={'passed':False}, error=str(exc.detail), failed=True))
+            save_project(project)
+            raise HTTPException(exc.status_code, {'message': exc.detail, 'calculationId': ident}) from exc
+        except Exception as exc:
+            if execution_id:
+                execute('UPDATE runs SET status=?,result=?,updated_at=? WHERE id=?',
+                    ('interrupted', json.dumps({'error':str(exc)[:2000]}), now(), execution_id))
+            raise
 
 
-def _execute_tool(project_id: str, p: ExecuteIn):
-    project = load_project(project_id)
+def _execute_tool(project_id: str, p: ExecuteIn, project=None, execution_id=None):
+    project = project or load_project(project_id)
+    if project.get('workflow') == 'efficient':
+        known = {d['key'] for d in project.get('plan', {}).get('deliverables', [])}
+        if set(p.deliverable_keys)-known:
+            raise HTTPException(422, '交付项不存在')
+        if set(p.basis_keys)-project.get('objects', {}).keys():
+            raise HTTPException(422, '关联的设计依据不存在')
+    solve_started = time.perf_counter()
     if p.tool in {"ask_user", "acceptance"}:
         raise HTTPException(status_code=422, detail="该工具不在此入口执行")
     if p.tool not in SCHEMAS and p.tool not in SPECIAL_TOOLS:
@@ -1557,6 +1796,8 @@ def _execute_tool(project_id: str, p: ExecuteIn):
     ensure_legacy_project(project)
     if p.tool == "export_xlsx":
         result = export_xlsx(project)
+    elif p.tool == "export_blender":
+        result = export_blender(project, p.args or {})
     elif p.tool == "export_freecad":
         result = export_freecad(project, p.args or {})
     elif p.tool == "pid":
@@ -1580,13 +1821,17 @@ def _execute_tool(project_id: str, p: ExecuteIn):
     else:
         try:
             result = run_tool(project_id, p.tool, p.args)
-        except ValueError as exc:
+        except (ValueError, PintError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)[:2000]) from exc
         except RuntimeError as exc:  # UncertainToolError is a RuntimeError subclass
             raise HTTPException(status_code=409, detail=str(exc)[:2000]) from exc
 
     artifacts = _normalize_artifacts(result, [])
     calculation_id = result.get("calculation_id")
+    if project.get('workflow') == 'efficient' and not calculation_id:
+        calculation_id = uid()
+        execute('INSERT INTO calculations VALUES(?,?,?,?,?,?)',
+                (calculation_id, project_id, p.tool, json.dumps(p.args), json.dumps(result, ensure_ascii=False), now()))
     verification = _calc_summary(p.tool, result)
     record = {
         "calculationId": calculation_id,
@@ -1595,6 +1840,29 @@ def _execute_tool(project_id: str, p: ExecuteIn):
         "args": p.args,
         **verification,
     }
+    if project.get('workflow') == 'efficient':
+        schema = {**SCHEMAS, 'dwsim':DwsimInput, 'export_blender':BlenderInput}.get(p.tool)
+        actual_request = schema.model_validate(p.args).model_dump(mode='json') if schema else p.args
+        record.update(solved=result.get('solved'), basis_revisions=result.get('basis_revisions', {}),
+                      execution_id=execution_id,
+                      actual_request=actual_request, captured_inputs=efficiency.capture_inputs(actual_request, p.tool),
+                      schema_sha256=hashlib.sha256(json.dumps(schema.model_json_schema(),sort_keys=True).encode()).hexdigest() if schema else None,
+                      model_version=result.get('input_source'), tool_version=result.get('version'),
+                      run_context=p.args.get('run_context', {}))
+        if not record['basis_revisions']:
+            record['basis_revisions'] = {key: project['objects'][key].get('revision') for key in p.basis_keys}
+        record['source_group_revisions'] = {q['source_group']: q.get('source_group_revision')
+            for key in record['basis_revisions'] for q in project.get('objects', {}).get(key, {}).get('quantities', [])
+            if q.get('source_group')}
+        record['artifact_ids'] = [a['artifactId'] for a in artifacts]
+        for artifact in artifacts:
+            path = _artifact_path(artifact['artifactId'])
+            artifact.update(sha256=efficiency.file_digest(path), bytes=path.stat().st_size)
+            row = one('SELECT metadata FROM artifacts WHERE id=?', (artifact['artifactId'],))
+            metadata = json.loads(row['metadata'])
+            metadata.update(sha256=artifact['sha256'], bytes=artifact['bytes'])
+            execute('UPDATE artifacts SET metadata=? WHERE id=?', (json.dumps(metadata), artifact['artifactId']))
+        record_metrics('execution', {'tool_ms': round((time.perf_counter()-solve_started)*1000, 3)})
     if p.tool == 'economics' and project.get('prices'):
         record['priceRevision'] = project['prices']['revision']
     project.setdefault("calculations", []).append(record)
@@ -1604,11 +1872,21 @@ def _execute_tool(project_id: str, p: ExecuteIn):
             "origin": "generated",
             "tool": p.tool,
             "createdAt": _utc(),
+            **({'calculation_id': calculation_id} if project.get('workflow') == 'efficient' else {}),
+            **({'deliverable_keys': p.deliverable_keys or ([next(iter(known))] if len(known)==1 else [])}
+               if project.get('workflow') == 'efficient' else {}),
         })
     if artifacts or p.tool in CALC_TOOLS:
         project["review"] = {}
+        project["bundle"] = None
     with _write_lock:
         save_project(project)
+
+    if project.get('workflow') == 'efficient':
+        return {'ok': True, 'phase': project['phase'], 'calculationId': calculation_id,
+                'tool': p.tool, 'verification': efficiency.validation_summary(verification), 'solved': result.get('solved'),
+                'artifacts': artifacts[:10], 'artifact_count': len(artifacts),
+                'summary': efficiency.summary(project), 'details': 'chem_calculations / chem_records'}
 
     payload = _truncate_result(result)
     response = {
@@ -1628,7 +1906,7 @@ def _dwsim_source(raw):
     path=Path(raw).expanduser()
     path=(ROOT/path).resolve() if not path.is_absolute() else path.resolve()
     home=dwsim_bridge.find_home()
-    roots=[ROOT.resolve(),DATA_ROOT.resolve()]+([(home/'samples').resolve()] if home else [])
+    roots=task_roots()+([(home/'samples').resolve()] if home else [])
     if not any(path.is_relative_to(root) for root in roots):raise ValueError('基准模型路径不在允许目录内')
     dwsim_bridge.validate_flowsheet(path)
     return path
@@ -1646,8 +1924,18 @@ def _dwsim_recover(project_id,study_id,case):
             project=load_project(project_id)
             if not any(c.get('calculationId')==record['id'] for c in project.get('calculations',[])):
                 artifacts=_normalize_artifacts(full,[])
-                project.setdefault('calculations',[]).append(dict(calculationId=record['id'],tool='dwsim',args=json.loads(record['input']),
-                    **_calc_summary('dwsim',full),createdAt=record['created_at'],recovered=True))
+                recovered=dict(calculationId=record['id'],tool='dwsim',args=json.loads(record['input']),
+                    **_calc_summary('dwsim',full),createdAt=record['created_at'],recovered=True)
+                if project.get('workflow')=='efficient':
+                    recovered.update(solved=full.get('solved'),basis_revisions=full.get('basis_revisions',{}),
+                        source_group_revisions=full.get('source_group_revisions',{}),
+                        artifact_ids=[a['artifactId'] for a in artifacts],model_version=full.get('input_source'),
+                        tool_version=full.get('version'),run_context=full.get('run_context',{}))
+                    for artifact in artifacts:
+                        path=_artifact_path(artifact['artifactId'])
+                        artifact.update(sha256=efficiency.file_digest(path),bytes=path.stat().st_size,
+                                        calculation_id=record['id'])
+                project.setdefault('calculations',[]).append(recovered)
                 known={f.get('artifactId') for f in project.get('files',[])}
                 project.setdefault('files',[]).extend({**a,'origin':'generated','tool':'dwsim','createdAt':_utc()} for a in artifacts if a['artifactId'] not in known)
                 project['review']={};project['bundle']=None;save_project(project)
@@ -1675,7 +1963,7 @@ DWSIM_STUDIES=Studies(project_dir,lambda pid,p:execute_tool(pid,ExecuteIn(tool='
 @app.post('/v1/projects/{project_id}/dwsim/study')
 def dwsim_study(project_id:str,p:StudyInput):
     if not project_file(project_id).is_file():raise HTTPException(status_code=404,detail='项目不存在')
-    if p.action in {'start','resume'}:_gate_check(json.loads(project_file(project_id).read_text(encoding='utf-8')),'dwsim')
+    if p.action in {'start','resume'}:_gate_check(load_project(project_id),'dwsim')
     return {'ok':True,'study':dependency_operation(DWSIM_STUDIES.call,project_id,p)}
 
 
@@ -1692,6 +1980,12 @@ def _dwsim_publish(project_id,p):
     record=one("SELECT result FROM calculations WHERE project_id=? AND id=? AND tool='dwsim'",(project_id,p.calculation_id))
     if not record:raise ValueError('本项目 DWSIM 计算记录不存在')
     result=json.loads(record['result'])
+    if project.get('workflow') == 'efficient':
+        issue = efficiency.check_calculation(project, p.calculation_id)
+        if issue:
+            raise ValueError(issue)
+        if not result.get('basis_keys'):
+            raise ValueError('正式发布前须明确关联设计依据 basis_keys，并重新计算')
     if result.get('solved') is not True or result.get('validation',{}).get('passed') is not True:
         raise ValueError('只有完整通过校核的结果可以发布')
     if result.get('validation',{}).get('schema_version')!=1:
@@ -1710,12 +2004,16 @@ def _dwsim_publish(project_id,p):
                     'native_models':[a for a in result.get('artifacts',[]) if a.get('name','').endswith(('.dwxmz','.dwxml'))],
                     'result_sha256':hashlib.sha256(record['result'].encode('utf-8')).hexdigest()}}
         combined={q['key']:q for q in previous.get('quantities',[])};combined.update({q['key']:q for q in quantities})
+        for q in previous.get('quantities', []):
+            if q.get('selection') and combined.get(q['key']) != q:
+                raise HTTPException(status_code=409,detail='已选取数值请用 chem_basis_select 添加计算候选；发布结果请使用独立数值 key')
         same=previous.get('title')==mapping.title and previous.get('quantities')==list(combined.values()) and previous.get('attributes')==attributes
         if same:
             prepared.append((storage_key,previous,False));continue
         if previous.get('revision',0)!=mapping.expected_revision:raise HTTPException(status_code=409,detail='工程对象版本冲突：'+storage_key)
         item=dict(kind=mapping.kind,key=mapping.key,title=mapping.title,quantities=list(combined.values()),attributes=attributes,
                   dependsOn=previous.get('dependsOn',[]),revision=previous.get('revision',0)+1,updatedAt=_utc())
+        if previous.get('selectionHistory'):item['selectionHistory']=previous['selectionHistory']
         prepared.append((storage_key,item,True))
     comparisons=[]
     for ref in p.references:
@@ -1782,7 +2080,7 @@ def intake(project_id: str, p: IntakeIn):
         source = (ROOT / source).resolve()
     else:
         source = source.resolve()
-    allowed = [ROOT.resolve(), DATA_ROOT.resolve()]
+    allowed = task_roots()
     if not any(source.is_relative_to(root) for root in allowed):
         raise HTTPException(status_code=422, detail="只接受工作区内的文件路径")
     if not source.is_file():
@@ -1849,6 +2147,12 @@ def artifact_preview(artifact_id: str):
 @project_write
 def review(project_id: str, p: ReviewIn):
     project = load_project(project_id)
+    if project.get('workflow') == 'efficient':
+        result = efficiency.review(project, _artifact_path, p.note)
+        result['checkedAt'] = _utc()
+        project['review'] = result
+        save_project(project)
+        return {'ok': True, 'review': efficiency.review_summary(result), 'summary': efficiency.summary(project)}
     blockers: list[str] = []
     requirements = project.get("requirements") or []
     plan = project.get("plan") or {}
@@ -1898,6 +2202,9 @@ def review(project_id: str, p: ReviewIn):
     unverified = [c for c in calculations
                   if c.get("tool") in CALC_TOOLS and (c.get("validation") or {}).get("passed") is None]
     result_warnings = []
+    basis_pending = selection_pending(objects)
+    for item in basis_pending:
+        result_warnings.append('数值待标定 ' + item['object_key'] + '/' + item['quantity_key'] + '：' + item['reason'])
     for reference in project.get('references') or []:
         if any(citation.get('ocr') for citation in reference.get('citations') or []):
             result_warnings.append('引用资料含待核对的图片逐字转录：'+reference['reference_id'][:12])
@@ -1914,6 +2221,7 @@ def review(project_id: str, p: ReviewIn):
         "ready": not blockers,
         "blockers": blockers,
         "warnings": result_warnings,
+        "basis_pending": basis_pending,
         "checkedAt": _utc(),
         "note": (p.note or "")[:2000],
         "counts": {
@@ -1937,20 +2245,23 @@ def bundle(project_id: str):
     project = load_project(project_id)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in project["name"])[:60] or "chemellm"
-    filename = f"{safe_name}-{stamp}.zip"
+    filename = f"{safe_name}-{stamp}-{uid()[:8]}.zip"
     target = BUNDLES_DIR / filename
     manifest = {
         "kernelVersion": KERNEL_VERSION,
         "project": summary_of(project),
         "generatedAt": _utc(),
         "files": [],
+        "deliverables": project.get('plan', {}).get('deliverables', []),
     }
-    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("project.json", json.dumps(project, ensure_ascii=False, indent=2))
+    with _bundle_archive(target) as archive:
+        archive.writestr("project.json", json.dumps({k:v for k,v in project.items() if not k.startswith('_store_')}, ensure_ascii=False, indent=2))
         archive.writestr("requirements.json", json.dumps(project.get("requirements") or [], ensure_ascii=False, indent=2))
         archive.writestr("plan.json", json.dumps(project.get("plan") or {}, ensure_ascii=False, indent=2))
         archive.writestr("calculations.json", json.dumps(project.get("calculations") or [], ensure_ascii=False, indent=2))
         archive.writestr('references.json', json.dumps(project.get('references') or [], ensure_ascii=False, indent=2))
+        if project.get('workflow') == 'efficient':
+            archive.writestr('source-groups.json', json.dumps(project.get('source_groups', {}), ensure_ascii=False, indent=2))
         if project.get('prices'):
             for name in ('prices.json', 'history.json'):
                 path = project_dir(project_id) / 'prices' / name
@@ -1959,28 +2270,59 @@ def bundle(project_id: str):
                 archive.writestr(arcname, content)
                 manifest['files'].append({'name': name, 'archivePath': arcname,
                                           'sha256': hashlib.sha256(content).hexdigest()})
-        for artifact in project.get("files") or []:
+        if project.get('workflow') == 'efficient':
+            adopted = {cid for d in project.get('plan', {}).get('deliverables', []) for cid in d.get('calculation_ids', [])}
+            for cid in adopted:
+                calculation = one('SELECT * FROM calculations WHERE project_id=? AND id=?', (project_id,cid))
+                if calculation:
+                    archive.writestr('calculation-results/'+cid+'.json', json.dumps(dict(calculation), ensure_ascii=False, indent=2))
+                else:
+                    raise HTTPException(409, '采用的计算记录缺失：'+cid)
+        packaged_files = efficiency.delivery_files(project) if project.get('workflow') == 'efficient' else project.get('files') or []
+        for artifact in packaged_files:
             aid = artifact.get("artifactId")
             if not aid:
                 continue
             try:
                 path = _artifact_path(aid)
             except HTTPException:
+                if project.get('workflow') == 'efficient':
+                    raise HTTPException(409, '映射成果缺失，未生成有效包：'+aid)
                 manifest["files"].append({"artifactId": aid, "name": artifact.get("name"), "missing": True})
                 continue
-            if path.stat().st_size > MAX_INTAKE:
-                manifest["files"].append({"artifactId": aid, "name": artifact.get("name"), "skipped": "too_large"})
+            if path.stat().st_size > MAX_BUNDLE_ARTIFACT and not artifact.get('registration_id'):
+                manifest["files"].append({"artifactId": aid, "name": artifact.get("name"),
+                                          "skipped": "too_large", "limitBytes": MAX_BUNDLE_ARTIFACT})
                 continue
             # Artifact names can repeat (multiple P&ID exports, several CAD parts);
             # prefix with the artifact id so every archive entry stays unique.
             arcname = "files/" + aid[:8] + "-" + path.name
-            archive.write(path, arcname)
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if artifact.get('registration_id'):
+                arcname = 'deliverables/'+artifact['registration_id']+'/'+efficiency.relative_path(artifact['relative_path'])
+            row = one('SELECT metadata FROM artifacts WHERE id=?', (aid,))
+            metadata = json.loads(row['metadata']) if row else {}
+            if metadata.get('source') == 'kernel export_blender':
+                relative = Path(metadata['scene_path'])
+                group = str(metadata['scene_group'])
+                if relative.is_absolute() or '..' in relative.parts or group != path.parents[len(relative.parts)-1].name:
+                    raise HTTPException(status_code=422, detail='三维成果归档路径无效')
+                arcname = 'scenes/'+group+'/'+relative.as_posix()
+            hashing = hashlib.sha256()
+            # Hash the same stream actually placed in the archive, never a prior read.
+            with path.open('rb') as source, archive.open(arcname, 'w', force_zip64=True) as member:
+                for block in iter(lambda: source.read(1024*1024), b''):
+                    hashing.update(block)
+                    member.write(block)
+            digest = hashing.hexdigest()
+            if project.get('workflow') == 'efficient' and artifact.get('sha256') and digest != artifact['sha256']:
+                raise HTTPException(status_code=409, detail='成果内容已变化，未生成有效包：'+artifact['name'])
             manifest["files"].append({
                 "artifactId": aid,
                 "name": artifact.get("name"),
                 "archivePath": arcname,
                 "sha256": digest,
+                "deliverable_keys": artifact.get('deliverable_keys', []),
+                "calculation_id": artifact.get('calculation_id'),
             })
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         steps = []
@@ -2005,13 +2347,13 @@ def bundle(project_id: str):
             "",
             *(steps or ["（本项目没有可重放的计算记录）"]),
             "",
-            "3. 重新生成成果文件（DOCX/PDF/SVG/DXF/xlsx/FCStd/STEP）并调用 `chem_review` 自检。",
+            "3. 重新生成成果文件（DOCX/PDF/SVG/DXF/xlsx/FCStd/STEP/blend/GLB/PNG）并调用 `chem_review` 自检。",
             "4. 校验：对 `files/` 中每个文件计算 SHA256，与 `manifest.json` 比较。",
             "",
             "## 边界",
             "- 自动校核 ≠ 专业审核；本包为工作草稿，审核状态以项目记录为准。",
             "- 复算只保证同一输入下模型可重放；不证明模型假设、物性或工程结论正确。",
-            "- 环境差异（Python/FreeCAD/LibreOffice 版本）可能改变文件字节，数值结果以 JSON 字段为准。",
+            "- 环境差异（Python/FreeCAD/Blender/LibreOffice 版本）可能改变文件字节，数值结果以 JSON 字段为准。",
             "",
         ])
         archive.writestr("recompute.md", recompute)
@@ -2021,7 +2363,7 @@ def bundle(project_id: str):
             "Replay instructions: recompute.md.\n"
             "This bundle is a work draft: automatic checks and professional review are separate.\n"
         ))
-    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    digest = efficiency.file_digest(target)
     entry = {
         "name": filename,
         "bytes": target.stat().st_size,
@@ -2035,12 +2377,30 @@ def bundle(project_id: str):
     return {"ok": True, "phase": project["phase"], "bundle": entry, "summary": summary_of(project)}
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _bundle_archive(target):
+    temporary = target.with_suffix('.partial')
+    try:
+        with zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED) as archive:
+            yield archive
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 @app.get("/v1/bundles/{filename}")
 def bundle_download(filename: str):
     target = (BUNDLES_DIR / filename).resolve()
     if not target.is_file() or not target.is_relative_to(BUNDLES_DIR.resolve()):
         raise HTTPException(status_code=404, detail="成果包不存在")
     return FileResponse(target, filename=target.name)
+
+
+from kernel.efficient import install as _install_efficient_routes
+EFFICIENT_ROUTES = _install_efficient_routes(sys.modules[__name__])
 
 
 if __name__ == "__main__":

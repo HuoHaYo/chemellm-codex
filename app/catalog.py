@@ -1,4 +1,8 @@
 TOOLS = [
+    {'id': 'export_blender', 'name': 'Blender 化工厂三维演示', 'category': '三维演示',
+     'engine': 'Blender / optional FreeCAD', 'status': 'integrated', 'url': 'https://www.blender.org/',
+     'license': 'Blender GPL-3.0-or-later；外部软件不随插件分发',
+     'description': '显式结构化厂区场景与 STEP/FCStd 外观导入，生成 blend、GLB、PNG 及来源记录；仅供演示，不执行工程布置审核。'},
     {"id":"cantera_equilibrium","name":"Cantera气相化学平衡","category":"专业模拟","engine":"Cantera Gibbs minimization","status":"integrated","url":"https://cantera.org/3.2/","license":"BSD-3-Clause；机理来源保留","description":"h2o2/gri30或受限四物种WGS的TP/HP理想气相平衡；保留原生YAML、输入输出和复算脚本。需simulation扩展；不含液固相或催化动力学。"},
     {"id":"cantera_reactor","name":"Cantera气相反应器动力学","category":"专业模拟","engine":"Cantera / CVODES","status":"integrated","url":"https://cantera.org/3.2/examples/python/reactors/reactor1.html","license":"BSD-3-Clause；机理来源保留","description":"定压/定容、绝热/恒温的封闭均相气相反应器，h2o2/gri30机理、轨迹/图表及原生复算包；60秒子进程限额。非乙苯催化机理或设备设计。"},
     {"id":"document_extract","name":"全文、表格与AI图像转录","category":"检索与文献","engine":"pdfplumber / configured vision model","status":"integrated","url":"https://github.com/jsvine/pdfplumber","license":"MIT / Apache-2.0等；模型服务依部署配置","description":"从项目原文件建立不可变全文快照；PDF原生文本/表格/公式候选和JATS段落优先；显式AI图像转录留存模型、提示版本和哈希，结果须核验。"},

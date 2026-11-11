@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from contextlib import redirect_stdout
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ import secrets
 import sys
 
 
-def configure(workspace: Path, data_root: Path | None = None) -> None:
+def configure(workspace: Path, data_root: Path | None = None, allowed_roots: list[Path] | None = None) -> None:
     workspace = workspace.resolve()
     data = data_root.resolve() if data_root else workspace / "data"
     snapshot = data / ".chem" if data_root else workspace / ".chem"
@@ -25,6 +26,7 @@ def configure(workspace: Path, data_root: Path | None = None) -> None:
         "CHEMELLM_KERNEL_PORT": "8766",
         "CHEMELLM_KERNEL_TOKEN": secrets.token_urlsafe(32),
         "CHEMELLM_PHASE_GATE": "enforce",
+        "CHEMELLM_ALLOWED_ROOTS": json.dumps([str(p.resolve()) for p in allowed_roots or []]),
     })
 
 
@@ -34,8 +36,12 @@ def main() -> None:
                         help="Local workspace for data/ and .chem/ (default: current directory)")
     parser.add_argument("--data-root", type=Path,
                         help="Explicit isolated storage, primarily for regression tests")
+    parser.add_argument('--allowed-root', type=Path, action='append', default=[],
+                        help='Allow task files below this root; repeat for multiple roots. Does not change storage.')
+    parser.add_argument('--skill-fingerprint', help='Expected skill SHA256 recorded when configuring this plugin package')
     options = parser.parse_args()
-    configure(options.workspace, options.data_root)
+    configure(options.workspace, options.data_root, options.allowed_root)
+    os.environ['CHEMELLM_SKILL_FINGERPRINT'] = options.skill_fingerprint or ''
     # Scientific libraries may print at import time; stdout belongs to MCP only.
     with redirect_stdout(sys.stderr):
         from chemellm_codex.server import create_server

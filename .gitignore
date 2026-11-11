@@ -21,3 +21,5 @@ Thumbs.db
 .DS_Store
 codex-plugin/.mcp.json
 .codex/config.toml
+/docs/modeling-test-followup-2026-11-05.md
+/docs/plugin-efficiency-audit-2026-11-08.md

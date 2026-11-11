@@ -2,13 +2,13 @@
 
 面向 Codex 的本地化工工程插件：技能负责工程流程，stdio MCP 连接本仓库的计算、证据、文档、工程对象、自动校核和成果打包能力。MCP 在进程内复用 HTTP 内核，不需要预先启动服务，也不占用 TCP 端口。
 
-当前版本 `0.5.0`，提供 Windows x64 一键联网安装包。安装后需在新 Codex 会话中加载；发布测试使用隔离配置，不修改开发者日常插件设置。
+当前版本 `0.6.0`，新增自动采集、来源组、批量成果登记与 SQLite 项目流程，支持 Blender 厂区三维演示。安装更新需在新 Codex 会话中加载；运行中的会话不会自动刷新。
 
 产品介绍与安装包下载：[chemellm.online](https://chemellm.online/)。官网为独立静态站点；部署与更新见 [官网维护说明](docs/website.md)。
 
 ## 用户安装
 
-从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.5.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
+从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.6.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
 
 先安装并登录支持插件的 Codex 桌面版或 CLI。看到 `Installed successfully` 后重启 Codex、开启新会话，即可提出化工任务。双击 **`CHECK.cmd`** 可再次检查运行环境。项目数据保存到解压目录 `data/`，快照在 `.chem/`；安装完成后保留整个目录。
 
@@ -29,7 +29,7 @@ codex plugin add chemellm@chemellm-local
 
 生成的 `codex-plugin/.mcp.json` 包含本机解释器和仓库绝对路径，已被 Git 忽略。插件缓存只包含清单、技能和该启动配置，计算引擎由已安装的本仓库 Python 包提供。**不要删除或移动本仓库及其 `.venv`**；移动目录、更换解释器或重新克隆后，重新安装 Python 包、生成配置并重新安装插件。`configure-codex.py` 只生成文件，不修改用户 Codex 设置。
 
-新会话可请求：“使用 ChemELLM 建立水物性计算项目，记录依据、生成 Markdown 报告并打包。”FreeCAD、LibreOffice、DWSIM、Cantera 为按需使用的可选软件或依赖；相应工具的可用性取决于本机环境，MCP 接入不代表已验证全部专业模型或外部软件。
+新会话可请求：“使用 ChemELLM 建立水物性计算项目，记录依据、生成 Markdown 报告并打包。”FreeCAD、Blender、LibreOffice、DWSIM、Cantera 为按需使用的可选软件或依赖；相应工具的可用性取决于本机环境，MCP 接入不代表已验证全部专业模型或外部软件。
 
 ## MCP 接口
 
@@ -39,39 +39,50 @@ codex plugin add chemellm@chemellm-local
 | 可选工具检测、安装方案、授权安装、进度 | `chem_dependencies`、`chem_dependency_prepare`、`chem_dependency_install`、`chem_dependency_install_status` |
 | DWSIM 稳态检查、仿真、多工况与设计联动 | `chem_dwsim_status`、`chem_dwsim`、`chem_dwsim_study`、`chem_dwsim_publish` |
 | 项目 | `chem_projects`、`chem_create_project`、`chem_project` |
+| 一次初始化、定向分页读取 | `chem_project_init`、`chem_records` |
 | 要求、计划、工程依据 | `chem_requirements`、`chem_plan`、`chem_object` |
+| 数值候选、优先级选取与假设补齐 | `chem_basis_select` |
 | 当前价格、更新、变更历史 | `chem_prices`、`chem_price_save`、`chem_price_history` |
 | 共享资料归档、读取、整理、检索、引用 | `chem_reference_import`、`chem_reference_read`、`chem_reference_save`、`chem_reference_search`、`chem_reference_use` |
 | 计算、证据、生成 | `chem_execute`、`chem_calculations` |
-| 材料、成果文件 | `chem_intake`、`chem_artifact` |
+| Blender 厂区演示 | `chem_tools(tool="export_blender")`、`chem_execute(tool="export_blender", ...)` |
+| 材料、成果文件、批量固定版本登记 | `chem_intake`、`chem_artifact`、`chem_artifacts_register` |
 | 自动校核、打包 | `chem_review`、`chem_bundle` |
 
 `chem_tools(tool=...)` 返回底层工具参数 schema；特殊工具没有 schema 时应查对应 `kernel/` 模块约定。完整项目和计算记录还可通过 `chemellm://projects/{project_id}`、`chemellm://calculations/{project_id}/{calculation_id}` 资源读取。
 
 成果包含 `localPath`、字节数和 SHA256，直接用绝对路径打开。返回的 `/v1/...` 路径属于内核契约；MCP 模式不提供外部 HTTP 下载端点。计算或生成中断后应先核对项目记录再重试。
 
+设计数值按用户数据、适用的广泛资料／已有数据推算、合理假设的顺序选取。缺数据时继续完成约定设计范围和深度，保留候选、适用性、推算链、假设及替换历史。`chem_basis_select` 检查单位和选取优先级，假设产生待标定与敏感性分析提示；不执行搜索、公式计算或专业审核。用法见 [数值选取说明](codex-plugin/skills/chemellm-engineering/references/numerical-selection.md)。更新后需重载 MCP 并在新会话加载技能，才能使用新增工具和规则。
+
 设备及其他费用保存在 `data/projects/<项目ID>/prices/prices.json`，用户可直接编辑；同目录 `history.json` 保留历次增删改的前后值、时间与理由。AI 收到真实价格后按稳定标识更新，缺价时保存有依据且明确标注的假设；不会用假设覆盖已有真实价格。价格更新使旧自动校核失效，台账与历史随成果包交付。字段与用法见 [价格台账说明](docs/pricing.md)。已安装插件需要重载 MCP、新会话加载更新后的技能，才能发现新增工具。
 
-标准、手册及参考资料可归档到 `data/references/` 跨项目复用，保留原件、来源、全文分块和有历史版本的整理稿。图片由工具直接返回给当前 Codex 会话识读，无需另配模型 API；长资料先建索引，再按任务补充精简。项目引用固定版本及独立副本，随成果包保存。用法见 [共享资料库说明](docs/references.md)。
+标准、手册及参考资料归档到 `data/references/` 跨项目复用。默认保存原件、读取相关部分并固定引用；整理稿按复用需要生成。图片可按页和区域直接固定版本及哈希，只有引用图中文字时才转录。用法见 [共享资料库说明](docs/references.md)。
 
 DWSIM 已通过本机 Automation3 接入。AI 可查询组分/物性包、创建或载入稳态流程、检查参数与单位、修改工况并求解，项目保存原始输入、完整结果、物流表和原生 `.dwxmz`，支持后续重算与成果打包。需要本机安装 Windows 版 DWSIM；动态及复杂反应模型需单独配置和验证。用法见 [DWSIM 接入说明](docs/dwsim.md)。
 
-对话中确实需要尚未安装的外部工具时，AI 会说明用途、安装理由、来源、目标位置和影响，询问是否安装；用户明确选择“是”后执行安装，检查可用性并继续原任务。当前内置 Windows 下 DWSIM、FreeCAD、LibreOffice 和 Cantera 的安装方案，其他工具由当前会话核对官方安装方式。检测和准备方案均不安装软件；拒绝或未回复时不安装。见 [按需安装说明](docs/dependencies.md)。
+对话中确实需要尚未安装的外部工具时，AI 会说明用途、安装理由、来源、目标位置和影响，询问是否安装；用户明确选择“是”后执行安装，检查可用性并继续原任务。当前内置 Windows 下 DWSIM、FreeCAD、Blender、LibreOffice 和 Cantera 的安装方案，其他工具由当前会话核对官方安装方式。检测和准备方案均不安装软件；拒绝或未回复时不安装。见 [按需安装说明](docs/dependencies.md)。
 
 ## 数据和工程边界
 
+Blender 支持后台生成完整厂区演示，包含设备、管道、管廊、道路、厂房、围墙与 STEP/FCStd 外观导入；输出 `.blend`、GLB、PNG 和可复现输入。CAD 转换另需 FreeCAD，参数化场景无需 FreeCAD。演示不代替碰撞、安全间距或施工配管审核。用法与虚构厂区示例见 [Blender 接入说明](docs/blender.md)。代码更新后重载 MCP；更新后的技能需在刷新插件技能后的新会话加载。
+
 - 默认使用本仓库的 `data/`、`data/kernel/` SQLite 与成果目录，以及 `.chem/` 快照。MCP 启动会覆盖继承的 DSH 数据路径、令牌和阶段配置。
 - `app/`、`kernel/` 和数据独立于旁边的 DSH 版 `ChemELlm`；不使用其源码、运行时或项目数据。内核不再回退到外部 `old/app`。
-- MCP 强制要求阶段顺序；依据数值保留单位、条件、来源和理由。自动校核与专业审核分离，`ready` 不代表工程标准符合性或专业审核通过。
-- 单个 MCP 进程串行执行内核请求；同一项目应由一个内核进程管理，避免多个 MCP/HTTP 进程同时写入 JSON 状态。
+- 新项目默认高效流程：一次初始化即可探索试算，正式交付按采用计算、依据和成果映射审核；旧项目继续原阶段流程，显式升级前备份核对。参见 [流程、存储与迁移](docs/efficiency-v2.md)。
+- 新流程 SQLite 保存版本及历史，JSON 为兼容导出，`.chem` 只写变化记录。同项目写入互斥；状态/取消不等待求解完成，MCP stdout 保持纯协议。任务目录来自客户端 roots 或显式 `--allowed-root`，不改变项目存储位置。
+- 自动校核与专业审核分离，`ready` 不代表工程标准符合性或专业审核通过；登记外部检查报告也不代表插件独立验证其结论。
 - 运行数据、个人材料、标准原文、令牌、虚拟环境和本机配置不纳入 Git。
 
 ## 开发与验证
 
 ```powershell
+.\.venv\Scripts\python.exe -X utf8 scripts\test_basis_selection.py
+.\.venv\Scripts\python.exe -X utf8 scripts\test_efficiency.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_kernel.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_codex_mcp.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_dependencies.py
+.\.venv\Scripts\python.exe -X utf8 scripts\test_blender.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_dwsim.py
 git diff --check
 ```

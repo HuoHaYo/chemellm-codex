@@ -155,7 +155,7 @@ class RecipeTests(unittest.TestCase):
     def test_fixed_recipes_environment_and_scope(self):
         manager = deps.DependencyManager(Path(temporary.name), ROOT)
         with patch.object(deps.shutil, 'which', return_value='C:/WindowsApps/winget.exe'):
-            for dependency in ('dwsim', 'freecad', 'libreoffice'):
+            for dependency in ('dwsim', 'freecad', 'libreoffice', 'blender'):
                 recipe = manager._recipe(dependency)
                 command = recipe['commands'][0]
                 self.assertEqual(command[command.index('--id')+1], deps.CATALOG[dependency]['package_id'])
