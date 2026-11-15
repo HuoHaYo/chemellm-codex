@@ -4,7 +4,13 @@
 
 当前版本 `0.6.0`，新增自动采集、来源组、批量成果登记与 SQLite 项目流程，支持 Blender 厂区三维演示。安装更新需在新 Codex 会话中加载；运行中的会话不会自动刷新。
 
+开发版新增 [QElectroTech 仪表与电气接线](docs/qelectrotech.md)：同一 MCP 生成可编辑 QET 工程、连接表和 PDF/SVG，检查明确端子与导线；不替代电气选型或功能安全审核。
+
+视觉标准化改进与公开竞赛/标准调研见[说明](docs/visual-standardization.md)：连续管道弯头、CAD线型/线宽及按图种检查规则。未完成能力统一维护在[插件缺陷待办](docs/plugin-backlog.md)。
+
 产品介绍与安装包下载：[chemellm.online](https://chemellm.online/)。官网为独立静态站点；部署与更新见 [官网维护说明](docs/website.md)。
+
+成果展示：[FR2023 炼化流程研究](https://chemellm.online/showcase/fr2023/) · [2026 天正杯苯乙烯分厂初步设计](https://chemellm.online/showcase/tianzheng/)，提供交互 PFD、三维场景与精选报告，并说明研究范围及未完成事项。
 
 ## 用户安装
 
@@ -29,7 +35,15 @@ codex plugin add chemellm@chemellm-local
 
 生成的 `codex-plugin/.mcp.json` 包含本机解释器和仓库绝对路径，已被 Git 忽略。插件缓存只包含清单、技能和该启动配置，计算引擎由已安装的本仓库 Python 包提供。**不要删除或移动本仓库及其 `.venv`**；移动目录、更换解释器或重新克隆后，重新安装 Python 包、生成配置并重新安装插件。`configure-codex.py` 只生成文件，不修改用户 Codex 设置。
 
-新会话可请求：“使用 ChemELLM 建立水物性计算项目，记录依据、生成 Markdown 报告并打包。”FreeCAD、Blender、LibreOffice、DWSIM、Cantera 为按需使用的可选软件或依赖；相应工具的可用性取决于本机环境，MCP 接入不代表已验证全部专业模型或外部软件。
+开发版可用 `configure-codex.py --data-root <工程数据目录> --allowed-root <任务目录>` 分离代码与数据；重新生成配置时，未指定的存储和允许目录沿用原值。本机工程数据位于相邻的 `cpc/chemellm-data`，回归使用独立临时目录。
+
+技能采用一个公共入口和四个专项：`chemellm-engineering`（通用计算与项目衔接）、`chemellm-dwsim`（稳态仿真）、`chemellm-3d`（Blender/CAD）、`chemellm-references`（资料与引用）、`chemellm-costing`（价格与经济）。专项可直接使用，混合任务沿用同一项目，不必依次加载所有技能。参数、示例和高级操作按需读取。
+
+本轮接口、读取量对比及验证边界见[技能与工具提效验证](docs/skill-efficiency.md)。
+
+`chem_health` 保留公共技能的 `skillPairing`，另用 `skillSetPairing` 和逐技能指纹核对整包。配置生成时固定期望指纹，专业参考文件变化也会被检测。安装前用 `scripts/check-installation.py --source-only` 验证源码；安装后使用默认检查或 `--plugin-root <实际插件缓存目录>`，独立核对缓存、源码及启动配置。源码检查不能证明缓存已刷新；运行会话需在统一刷新后重新连接。
+
+新会话可请求：“使用 ChemELLM 建立水物性计算项目，记录依据、生成 Markdown 报告。”单份成果直接提供文件；用户要求压缩包，或多文件需要整体下载、转交时才打包。FreeCAD、Blender、LibreOffice、DWSIM、Cantera 为按需使用的可选软件或依赖；相应工具的可用性取决于本机环境，MCP 接入不代表已验证全部专业模型或外部软件。
 
 ## MCP 接口
 
@@ -51,11 +65,15 @@ codex plugin add chemellm@chemellm-local
 
 `chem_tools(tool=...)` 返回底层工具参数 schema；特殊工具没有 schema 时应查对应 `kernel/` 模块约定。完整项目和计算记录还可通过 `chemellm://projects/{project_id}`、`chemellm://calculations/{project_id}/{calculation_id}` 资源读取。
 
-成果包含 `localPath`、字节数和 SHA256，直接用绝对路径打开。返回的 `/v1/...` 路径属于内核契约；MCP 模式不提供外部 HTTP 下载端点。计算或生成中断后应先核对项目记录再重试。
+发现用途时用 `chem_tools(view="summary", category=..., offset=0, limit=20)`，类别为 `engineering/dwsim/3d/references/costing`，可多类归属；摘要没有 schema。已知工具时直接指定 `tool`，内核只生成该工具 schema。原无参调用保留全量目录。
+
+`chem_calculations(view="summary")` 分页读取计算目录，`recorded` 只表示记录存在；求解和校核状态须读取实际字段。指定计算 ID、`view="selected"` 和 `result_path`（结果根节点内的 JSON Pointer）读取原值、哈希和分页位置。数组和对象按 `offset/limit` 分页；过大内容返回缩小范围提示，不静默截断。旧调用及 `view="full"` 保留完整输入和结果。
+
+成果包含 `localPath`、字节数和 SHA256，直接用绝对路径打开。必要审核通过即为 `done`，不要求 ZIP。`chem_bundle(project_id, artifact_ids?)` 仅打包选定最终成果、必要资源和可读交付说明；原生模型按需求保留，过程记录、日志和复算脚本保存在内部。文件登记支持 `delivery_role` 和同批相对路径 `depends_on`。内部哈希清单位于 ZIP 旁的 `.manifest.json`，不加入交付包；`scripts/verify_bundle.py --manifest <清单路径> <ZIP路径>` 可核验，无清单只能检查压缩完整性。返回的 `/v1/...` 路径属于内核契约；MCP 模式不提供外部 HTTP 下载端点。计算或生成中断后应先核对项目记录再重试。
 
 设计数值按用户数据、适用的广泛资料／已有数据推算、合理假设的顺序选取。缺数据时继续完成约定设计范围和深度，保留候选、适用性、推算链、假设及替换历史。`chem_basis_select` 检查单位和选取优先级，假设产生待标定与敏感性分析提示；不执行搜索、公式计算或专业审核。用法见 [数值选取说明](codex-plugin/skills/chemellm-engineering/references/numerical-selection.md)。更新后需重载 MCP 并在新会话加载技能，才能使用新增工具和规则。
 
-设备及其他费用保存在 `data/projects/<项目ID>/prices/prices.json`，用户可直接编辑；同目录 `history.json` 保留历次增删改的前后值、时间与理由。AI 收到真实价格后按稳定标识更新，缺价时保存有依据且明确标注的假设；不会用假设覆盖已有真实价格。价格更新使旧自动校核失效，台账与历史随成果包交付。字段与用法见 [价格台账说明](docs/pricing.md)。已安装插件需要重载 MCP、新会话加载更新后的技能，才能发现新增工具。
+设备及其他费用保存在 `data/projects/<项目ID>/prices/prices.json`，用户可直接编辑；同目录 `history.json` 保留历次增删改的前后值、时间与理由。AI 收到真实价格后按稳定标识更新，缺价时保存有依据且明确标注的假设；不会用假设覆盖已有真实价格。价格更新使旧自动校核失效，台账与历史保存在内部；约定交付价格表时生成对应可读成果。字段与用法见 [价格台账说明](docs/pricing.md)。已安装插件需要重载 MCP、新会话加载更新后的技能，才能发现新增工具。
 
 标准、手册及参考资料归档到 `data/references/` 跨项目复用。默认保存原件、读取相关部分并固定引用；整理稿按复用需要生成。图片可按页和区域直接固定版本及哈希，只有引用图中文字时才转录。用法见 [共享资料库说明](docs/references.md)。
 
@@ -79,6 +97,7 @@ Blender 支持后台生成完整厂区演示，包含设备、管道、管廊、
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 scripts\test_basis_selection.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_efficiency.py
+.\.venv\Scripts\python.exe -X utf8 scripts\test_skill_efficiency.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_kernel.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_codex_mcp.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_dependencies.py

@@ -1,57 +1,76 @@
-"""Verify a ChemELLM local bundle: manifest hashes and archive contents.
-
-Usage: python scripts/verify_bundle.py [path-to-zip]
-Without a path, verifies the newest zip under data/bundles/.
-"""
-
+"""Verify delivery ZIP bytes using an optional external or legacy internal manifest."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
-import sys
-import zipfile
 from pathlib import Path
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def newest_bundle() -> Path:
-    bundles = sorted((ROOT / "data" / "bundles").glob("*.zip"), key=lambda item: item.stat().st_mtime)
+def newest_bundle():
+    bundles = sorted((ROOT / 'data' / 'bundles').glob('*.zip'), key=lambda p: p.stat().st_mtime)
     if not bundles:
-        raise SystemExit("no bundle under data/bundles")
+        raise ValueError('no bundle under data/bundles')
     return bundles[-1]
 
 
-def main() -> None:
-    target = Path(sys.argv[1]) if len(sys.argv) > 1 else newest_bundle()
-    if not target.is_file():
-        raise SystemExit(f"bundle not found: {target}")
-    print("bundle:", target.name, target.stat().st_size, "bytes")
+def verify(target, manifest_path=None):
+    target = Path(target)
     with zipfile.ZipFile(target) as archive:
+        if len(set(archive.namelist())) != len(archive.namelist()):
+            raise ValueError('duplicate ZIP entry')
+        failed = archive.testzip()
+        if failed:
+            raise ValueError('ZIP integrity failure: '+failed)
+        manifest = None
+        candidate = Path(manifest_path) if manifest_path else target.with_suffix('.manifest.json')
+        if candidate.is_file():
+            manifest = json.loads(candidate.read_text(encoding='utf-8'))
+        elif manifest_path:
+            raise ValueError('manifest not found: '+str(candidate))
+        elif 'manifest.json' in archive.namelist():
+            manifest = json.loads(archive.read('manifest.json'))
+        if manifest is None:
+            return {'integrity': True, 'hashesVerified': False, 'note': '仅检查 ZIP 压缩完整性；无清单，未验证文件哈希或成果完整性。'}
+        if manifest.get('bundleSha256'):
+            digest = hashlib.sha256()
+            with target.open('rb') as stream:
+                for block in iter(lambda: stream.read(1024*1024), b''):
+                    digest.update(block)
+            if digest.hexdigest() != manifest['bundleSha256']:
+                raise ValueError('bundle sha256 mismatch')
         names = set(archive.namelist())
-        print("entries:", len(names))
-        for required in ("project.json", "requirements.json", "plan.json", "calculations.json", "manifest.json"):
-            if required not in names:
-                raise SystemExit(f"missing entry: {required}")
-        manifest = json.loads(archive.read("manifest.json"))
-        files = manifest.get("files") or []
-        missing = [item for item in files if item.get("archivePath") not in names]
-        if missing:
-            raise SystemExit(f"manifest references missing files: {missing[:3]}")
-        mismatched = []
-        for item in files:
-            archive_path = item.get("archivePath")
-            if not archive_path:
-                continue
-            digest = hashlib.sha256(archive.read(archive_path)).hexdigest()
-            if digest != item.get("sha256"):
-                mismatched.append(archive_path)
-        if mismatched:
-            raise SystemExit(f"sha256 mismatch: {mismatched[:3]}")
-        print("manifest files:", len(files), "all hashes match")
-        print("project phase:", (manifest.get("project") or {}).get("phase"))
-        print("VERIFY OK")
+        for item in manifest.get('files') or []:
+            if item.get('missing') or item.get('skipped'):
+                continue  # Old archives may record omissions explicitly.
+            name = item.get('archivePath')
+            if name not in names:
+                raise ValueError('manifest references missing file: '+str(name))
+            digest = hashlib.sha256()
+            with archive.open(name) as stream:
+                for block in iter(lambda: stream.read(1024*1024), b''):
+                    digest.update(block)
+            if digest.hexdigest() != item.get('sha256'):
+                raise ValueError('sha256 mismatch: '+name)
+        if manifest.get('schemaVersion') == 2 and names != {f['archivePath'] for f in manifest['files']}:
+            raise ValueError('manifest does not cover all ZIP entries')
+        return {'integrity': True, 'hashesVerified': True, 'files': len(manifest.get('files') or [])}
 
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('path', type=Path, nargs='?')
+    parser.add_argument('--manifest', type=Path, help='External manifest; defaults to adjacent .manifest.json')
+    args = parser.parse_args()
+    try:
+        result = verify(args.path or newest_bundle(), args.manifest)
+    except (ValueError, OSError, zipfile.BadZipFile) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+if __name__ == '__main__':
     main()

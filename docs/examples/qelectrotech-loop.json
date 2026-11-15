@@ -1,0 +1,34 @@
+{
+  "action": "create",
+  "title": "PT-101 两线制压力变送器接线示例",
+  "source": "开发验收虚构回路：假定变送器为无源两线制 4-20 mA，PLC 为提供回路供电的有源隔离 AI；端子号与通道号仅为示例，工程使用须按实际厂家手册确认。",
+  "folios": [
+    {
+      "title": "PT-101 至 AI-01",
+      "components": [
+        {"id": "PT-101", "kind": "instrument", "label": "两线制 4-20 mA", "terminals": [
+          {"id": "+", "side": "right", "potential": "LOOP+"},
+          {"id": "-", "side": "right", "potential": "LOOP-"}
+        ]},
+        {"id": "XT1", "kind": "terminal", "label": "接线箱端子", "terminals": [
+          {"id": "1A", "side": "left", "potential": "LOOP+"},
+          {"id": "2A", "side": "left", "potential": "LOOP-"},
+          {"id": "1B", "side": "right", "potential": "LOOP+"},
+          {"id": "2B", "side": "right", "potential": "LOOP-"}
+        ]},
+        {"id": "AI-01", "kind": "plc", "label": "有源隔离 AI 通道", "terminals": [
+          {"id": "AI+", "side": "left", "potential": "LOOP+"},
+          {"id": "AI-", "side": "left", "potential": "LOOP-"}
+        ]}
+      ],
+      "wires": [
+        {"id": "W101", "start": {"component": "PT-101", "terminal": "+"}, "end": {"component": "XT1", "terminal": "1A"}, "cable": "C101", "core": "1", "section_mm2": 0.75},
+        {"id": "W102", "start": {"component": "PT-101", "terminal": "-"}, "end": {"component": "XT1", "terminal": "2A"}, "cable": "C101", "core": "2", "section_mm2": 0.75},
+        {"id": "J101", "start": {"component": "XT1", "terminal": "1A"}, "end": {"component": "XT1", "terminal": "1B"}, "section_mm2": 0.75},
+        {"id": "J102", "start": {"component": "XT1", "terminal": "2A"}, "end": {"component": "XT1", "terminal": "2B"}, "section_mm2": 0.75},
+        {"id": "W103", "start": {"component": "XT1", "terminal": "1B"}, "end": {"component": "AI-01", "terminal": "AI+"}, "cable": "C102", "core": "1", "section_mm2": 0.75},
+        {"id": "W104", "start": {"component": "XT1", "terminal": "2B"}, "end": {"component": "AI-01", "terminal": "AI-"}, "cable": "C102", "core": "2", "section_mm2": 0.75}
+      ]
+    }
+  ]
+}

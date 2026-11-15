@@ -40,6 +40,9 @@ class RegisteredFile(BaseModel):
     deliverable_keys: list[str] = Field(default_factory=list, max_length=100)
     sha256: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     calculation_id: str | None = None
+    delivery_role: Literal['deliverable', 'resource', 'internal'] | None = None
+    depends_on: list[str] | None = Field(default=None, max_length=10000,
+        description='同批登记根目录下的相对资源路径；空数组表示不依赖其他文件')
 
 
 class ExternalCheck(BaseModel):
@@ -63,6 +66,9 @@ class ArtifactRegistration(BaseModel):
             raise ValueError('成果相对路径重复')
         if any(relative_path(c.report_path) not in paths for c in self.checks):
             raise ValueError('检查报告须与成果一同登记')
+        for f in self.files:
+            for dependency in f.depends_on or []:
+                relative_path(dependency)
         return self
 
 
@@ -94,7 +100,7 @@ def allowed_path(raw, roots):
 def summary(project):
     review = project.get('review') or {}
     return dict(projectId=project['id'], name=project['name'], workflow=project.get('workflow', 'legacy'),
-                task_kind=project.get('task_kind', 'design'), phase=project.get('phase'),
+                task_kind=project.get('task_kind', 'design'), phase='done' if review.get('ready') else project.get('phase'),
                 revision=project.get('_store_revision', project.get('revision', 0)),
                 counts=project.get('counts') or {s: len(project.get(s, [])) for s in
                     ('objects', 'source_groups', 'calculations', 'files', 'requirements')},
@@ -123,23 +129,24 @@ def check_calculation(project, ident):
 
 
 def selected_files(project, deliverable):
+    from .delivery import file_role, _latest
     attached = [f for f in project.get('files', []) if deliverable['key'] in f.get('deliverable_keys', [])]
     if deliverable.get('artifact_ids'):
-        return [f for f in attached if f['artifactId'] in deliverable['artifact_ids']]
-    if deliverable.get('calculation_ids'):
-        return [f for f in attached if not f.get('calculation_id') or f['calculation_id'] in deliverable['calculation_ids']]
-    return attached
+        attached = [f for f in attached if f['artifactId'] in deliverable['artifact_ids']]
+    elif deliverable.get('calculation_ids'):
+        attached = [f for f in attached if not f.get('calculation_id') or f['calculation_id'] in deliverable['calculation_ids']]
+    attached = [f for f in attached if file_role(f, project) == 'deliverable']
+    return attached if deliverable.get('artifact_ids') else _latest(attached)
 
 
-def delivery_files(project):
-    ids = {f['artifactId'] for d in project.get('plan', {}).get('deliverables', []) for f in selected_files(project, d)}
-    groups = {f['registration_id'] for f in project.get('files', []) if f.get('artifactId') in ids and f.get('registration_id')}
-    return [f for f in project.get('files', []) if f.get('artifactId') in ids or
-            f.get('registration_id') in groups or f.get('origin') == 'reference']
+def delivery_files(project, artifact_ids=None):
+    from .delivery import select_files
+    return select_files(project, artifact_ids)
 
 
 def review(project, artifact_path, note=''):
     blockers, warnings = [], []
+    checked_files = set()
     deliverables = project.get('plan', {}).get('deliverables', [])
     if not project.get('requirements'):
         blockers.append('缺少用户要求')
@@ -205,8 +212,18 @@ def review(project, artifact_path, note=''):
                 path = artifact_path(f['artifactId'])
                 if f.get('sha256') and file_digest(path) != f['sha256']:
                     blockers.append('登记成果内容已改变：'+f['name'])
+                checked_files.add(f['artifactId'])
             except (OSError, ValueError, HTTPException):
                 blockers.append('登记成果缺失：'+f['name'])
+    try:
+        for f in delivery_files(project):
+            if f['artifactId'] in checked_files:
+                continue
+            path = artifact_path(f['artifactId'])
+            if f.get('sha256') and file_digest(path) != f['sha256']:
+                blockers.append('交付文件或资源内容已改变：'+f['name'])
+    except (OSError, ValueError, HTTPException) as exc:
+        blockers.append('交付文件或资源不完整：'+str(getattr(exc, 'detail', exc)))
     return dict(ready=not blockers, blockers=list(dict.fromkeys(blockers)), warnings=list(dict.fromkeys(warnings)),
                 professionalReview='not_reviewed', note=note[:2000], external_reports_independently_verified=False)
 

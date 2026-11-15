@@ -6,7 +6,7 @@
 
 ## 调用示例
 
-先检测 `chem_dependencies(dependency="blender")`，保存项目要求、计划和设计依据，再读取 `chem_tools(tool="export_blender")`。通过既有执行入口调用：
+先检测 `chem_dependencies(dependency="blender")`，已有项目直接读取 `chem_tools(tool="export_blender")`；新流程一次初始化即可试做。旧项目继续沿用阶段门禁。通过既有执行入口调用：
 
 ```json
 {
@@ -36,8 +36,14 @@ CAD 导入另需现有 FreeCADCmd。先把文件放入本仓库或当前数据�
 
 每次输出独立成果目录，登记 blend、GLB、PNG、输入、CAD 来源、脚本、日志和报告。全部必需输出校验成功才登记；失败保留 failure.json 和日志。MCP 返回本地绝对路径与 SHA256，原生模型和 GLB 使用 PNG 预览。
 
-`chem_bundle` 在 `scenes/<导出ID>/` 保留相对结构，按 reproduce.md 可重新生成；每个文件单独校验哈希。上传仍限 25 MiB，成果打包单文件上限独立为 256 MiB，超限会在 manifest 中标记。
+按需求直接交付最终模型、预览或生成 ZIP。`chem_bundle` 在 `scenes/<导出ID>/` 保留相对结构；只选择最终成果及必要资源，原生 blend 按约定格式或明确选择保留。reproduce.md、运行脚本、输入、来源副本和临时网格留在内部供复算。实际入包字节逐一校验哈希，清单保存在 ZIP 外部。上传仍限 25 MiB，成果打包单文件上限独立为 256 MiB；超限拒绝打包，不生成有缺项的包。
 
 专项验证：`python -X utf8 scripts/test_blender.py`。真实测试使用独立临时项目，覆盖原生重开、GLB 再导入、毫米/米一致性、混合 CAD、源文件哈希和打包；缺软件时对应真实测试明确跳过。虚构厂区视觉验收产物保存在忽略目录 `output/blender-qa/`。
 
 三维结果用于方案展示，不执行碰撞、检修空间、安全间距、配管等级或施工图审核。后台生成不联动正在打开的 Blender 场景，不生成视频。
+
+## 连续管道与视觉规范
+
+管道采用相切圆弧和连续封闭圆截面网格。可选`bend_radius`为中心线半径，与输入单位一致；缺省1.5D是明确记录的展示假设，不能作为标准管件选型。过短路径、直接折返或半径不大于管道外半径会在执行前报错。报告中的端点和半径为对象局部坐标/输入单位；模型世界坐标为米。
+
+每条生成管道实测封闭流形及连通分量；原生与GLB重开验收仍需进行。检查不包含全局自交、设备接管、口径/功能匹配或专业管道审核。制图与布置规则见[共享视觉参考](../codex-plugin/skills/chemellm-engineering/references/visual-standards.md)，调研边界和验收见[视觉标准化](visual-standardization.md)，未完成能力见[缺陷待办](plugin-backlog.md)。

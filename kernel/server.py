@@ -70,7 +70,7 @@ import dwsim_bridge  # noqa: E402
 import cad_engineering  # noqa: E402
 from app.toolbox import SCHEMAS, run_tool  # noqa: E402
 from app.catalog import TOOLS  # noqa: E402
-from app.pricing import PriceBook, PriceWrite, PriceConflict  # noqa: E402
+from app.pricing import PriceBook, PriceWrite, PriceConflict, _atomic  # noqa: E402
 from app.basis_selection import BasisSelectionIn, apply_selection, selection_pending  # noqa: E402
 from app.references import ReferenceLibrary, ReferenceImport, ReferenceSave, ReferenceUse, ReferenceConflict  # noqa: E402
 from app.dwsim import DwsimInput  # noqa: E402
@@ -80,12 +80,15 @@ from kernel.dwsim_studies import Studies, ProjectBusy  # noqa: E402
 from app.external_tools import find_freecad, find_libreoffice  # noqa: E402
 from kernel.dependencies import DependencyManager, DependencyPrepare, DependencyInstall  # noqa: E402
 from app.blender import BlenderInput  # noqa: E402
-from app import project_store, efficiency  # noqa: E402
+from app.qelectrotech import QElectroTechInput  # noqa: E402
+from kernel import qelectrotech_bridge  # noqa: E402
+from app.external_tools import qelectrotech_status  # noqa: E402
+from app import project_store, efficiency, delivery  # noqa: E402
 from kernel import blender_bridge  # noqa: E402
 
 import app.documents as _legacy_documents  # noqa: E402
 
-from chemellm_codex import __version__ as KERNEL_VERSION, skill_fingerprint
+from chemellm_codex import __version__ as KERNEL_VERSION, skill_fingerprint, skill_inventory
 PHASE_GATE = os.getenv("CHEMELLM_PHASE_GATE", "advisory").lower()
 KERNEL_TOKEN = os.getenv("CHEMELLM_KERNEL_TOKEN", "")
 MAX_INTAKE = 25 * 1024 * 1024
@@ -152,7 +155,7 @@ CALC_TOOLS = {
 }
 SPECIAL_TOOLS = {"export_blender", "export_xlsx", "export_freecad", "pid", "pid_check", "pid_data",
                  "cad_part", "equipment_datasheet", "relief_sizing", "hazop_lopa",
-                 "compliance_matrix", "dwsim"}
+                 "compliance_matrix", "dwsim", "qelectrotech"}
 GENERATE_TOOLS = {"export_report", "pfd"}
 EVIDENCE_TOOLS = {
     "literature_search", "pubchem", "open_literature_search", "project_search",
@@ -168,6 +171,7 @@ MIN_PHASE = {
     "export_blender": "basis",
     "pid": "basis",
     "pid_data": "basis",
+    "qelectrotech": "basis",
     "equipment_datasheet": "basis",
     "relief_sizing": "basis",
     "hazop_lopa": "basis",
@@ -227,13 +231,14 @@ def load_project(project_id: str) -> dict:
             except ProjectBusy as exc:
                 if project.get('workflow') != 'efficient':
                     raise HTTPException(status_code=409,detail=str(exc)) from exc
+        project['phase'] = derive_phase(project)
         return project
 
 
 def derive_phase(project: dict) -> str:
     if project.get('workflow') == 'efficient':
         if project.get('review', {}).get('ready'):
-            return 'done' if project.get('bundle') else 'bundle'
+            return 'done'
         return 'review' if project.get('files') else 'execute'
     requirements = project.get("requirements") or []
     plan = project.get("plan") or {}
@@ -252,7 +257,7 @@ def derive_phase(project: dict) -> str:
         return "execute"
     if not review.get("ready"):
         return "review"
-    return "done" if project.get("bundle") else "bundle"
+    return "done"
 
 
 def snapshot_project(project: dict) -> None:
@@ -351,7 +356,7 @@ def summary_of(project: dict) -> dict:
     return {
         "projectId": project["id"],
         "name": project["name"],
-        "phase": project.get("phase"),
+        "phase": 'done' if (project.get('review') or {}).get('ready') else project.get("phase"),
         "updatedAt": project.get("updatedAt"),
         "counts": {
             "requirements": len(project.get("requirements") or []),
@@ -396,6 +401,9 @@ def _normalize_artifacts(value: Any, found: list) -> list:
                 "previewPath": f"/v1/artifacts/{aid}/preview",
                 "hasVisualPreview": bool(value.get("has_visual_preview")),
                 "previewMode": metadata.get("preview_mode"),
+                "delivery_role": delivery.file_role({**metadata, 'name': value.get('name'), 'kind': value.get('kind')}),
+                "depends_on": metadata.get('depends_on', []),
+                **{k: metadata[k] for k in ('scene_group', 'scene_path') if k in metadata},
             })
             return found
         for item in value.values():
@@ -546,6 +554,8 @@ def health():
     skill = ROOT/'codex-plugin/skills/chemellm-engineering'
     fingerprint = skill_fingerprint(skill)
     expected = os.getenv('CHEMELLM_SKILL_FINGERPRINT')
+    skill_set = skill_fingerprint(skill.parent)
+    expected_set = os.getenv('CHEMELLM_SKILL_SET_FINGERPRINT')
     return {
         "ok": True,
         "version": KERNEL_VERSION,
@@ -553,27 +563,28 @@ def health():
         "dataDir": str(DATA_ROOT),
         "referenceDir": str(REFERENCE_LIBRARY.root),
         "dwsim": dwsim_bridge.status(),
+        "qelectrotech": qelectrotech_status(),
         "projectCount": len(list(PROJECTS_DIR.glob("*/project.json"))),
         "workflowVersion": 2,
         "capabilities": ['project_init', 'artifacts_register', 'source_groups', 'records', 'image_citations', 'sqlite_projects',
-                         'automatic_capture','adopted_review','mcp_roots','parallel_status_cancel','incremental_snapshots'],
+                         'automatic_capture','adopted_review','mcp_roots','parallel_status_cancel','incremental_snapshots',
+                         'optional_bundle','selective_delivery','qelectrotech_wiring'],
         "skillFingerprint": fingerprint,
         "expectedSkillFingerprint": expected,
         "skillPairing": 'matched' if expected == fingerprint else ('mismatch' if expected else 'unconfigured'),
+        "skillSetFingerprint": skill_set,
+        "expectedSkillSetFingerprint": expected_set,
+        "skillSetPairing": 'matched' if expected_set == skill_set else ('mismatch' if expected_set else 'unconfigured'),
+        "skills": skill_inventory(skill.parent),
         "allowedRoots": [str(p) for p in task_roots()],
     }
 
 
 @app.get("/v1/tools")
-def tools():
-    return {
-        "tools": TOOLS,
-        "schemas": {name: schema.model_json_schema() for name, schema in {**SCHEMAS, 'dwsim': DwsimInput, 'export_blender': BlenderInput}.items()},
-        "executable": sorted(list(SCHEMAS.keys() - {"ask_user", "acceptance"}) + list(SPECIAL_TOOLS)),
-        "calcTools": sorted(CALC_TOOLS),
-        "generateTools": sorted(GENERATE_TOOLS),
-        "evidenceTools": sorted(EVIDENCE_TOOLS),
-    }
+def tools(tool: str | None = None, view: str | None = None, category: str | None = None,
+          offset: int = 0, limit: int = 20):
+    from app.tool_discovery import discover
+    return discover(sys.modules[__name__], tool, view, category, offset, limit)
 
 
 @app.get('/v1/dwsim')
@@ -658,7 +669,7 @@ def reference_use(project_id: str, p: ReferenceUse):
             existing = {item['artifactId'] for item in project.get('files') or []}
             for artifact in _normalize_artifacts(result['artifacts'], []):
                 if artifact['artifactId'] not in existing:
-                    project.setdefault('files', []).append({**artifact, 'origin': 'reference',
+                    project.setdefault('files', []).append({**artifact, 'origin': 'reference', 'delivery_role': 'internal',
                                                            'createdAt': _utc(), 'referenceId': p.reference_id,
                                                            'referenceRevision': p.revision})
             project['review'] = {}
@@ -1170,7 +1181,7 @@ def export_blender(project: dict, args: dict) -> dict:
         if not path.is_file():
             continue
         metadata = {'source': 'kernel export_blender', 'presentation_only': True,
-                    'scene_group': folder.name, 'scene_path': path.relative_to(folder).as_posix()}
+                    'scene_group': folder.name, **delivery.generated_metadata(path, 'kernel export_blender', path.relative_to(folder).as_posix())}
         preview = str(folder/'preview.png') if path.name in {'scene.blend', 'scene.glb'} else None
         records.append(artifact_record(project['id'], path, preview=preview,
                                       metadata={**metadata, 'preview_mode': 'visual' if preview else None}))
@@ -1271,7 +1282,8 @@ def run_dwsim(project: dict, args: dict) -> dict:
             result=dwsim_bridge.layout_flowsheet(request,folder,native_path)
             result['input_source']=source_meta
             result['artifacts']=[artifact_record(project['id'],p,metadata={'source':'DWSIM native graphics layout',
-                'solver_executed':False,'protected_data_unchanged':True,'input_source':source_meta})
+                'solver_executed':False,'protected_data_unchanged':True,'input_source':source_meta,
+                **delivery.generated_metadata(p, 'DWSIM native graphics layout')})
                 for p in [input_path,Path(result['layout_path']),native_path,input_copy,*sorted(folder.rglob('*.png'))]]
             return result
         missing_basis = [key for key in request.basis_keys if key not in (project.get('objects') or {})]
@@ -1363,7 +1375,8 @@ def run_dwsim(project: dict, args: dict) -> dict:
         json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8')
         csv_path.write_text(dwsim_bridge.streams_csv(result), encoding='utf-8-sig')
         records = [artifact_record(project['id'], path, metadata={'source': 'DWSIM Automation3',
-                    'version': result.get('version'), 'input_source': source_meta, 'solved': bool(result.get('solved'))})
+                    'version': result.get('version'), 'input_source': source_meta, 'solved': bool(result.get('solved')),
+                    **delivery.generated_metadata(path, 'DWSIM Automation3')})
                    for path in [input_path, json_path, csv_path, native_path, *([input_copy] if input_copy else []),
                        *([Path(result['layout_path']),*sorted((folder/'layout').rglob('*.png'))] if request.layout is not None else [])]]
         calculation_id = uid()
@@ -1611,6 +1624,22 @@ def check_pid(project: dict, args: dict) -> dict:
     return {"validation": validation, "model": "pid-rules-standard", "warnings": validation["warnings"]}
 
 
+def export_qelectrotech(project: dict, args: dict) -> dict:
+    try:
+        request = QElectroTechInput.model_validate(args)
+        folder = KERNEL_DATA/'artifacts'/uid()
+        built = qelectrotech_bridge.build(request, folder)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)[:2000]) from exc
+    records = [artifact_record(project['id'], path,
+        metadata={'source': 'kernel qelectrotech', **delivery.generated_metadata(path, 'kernel qelectrotech'),
+                  'native_reload_verified': False,
+                  'preview_engine': built['preview_engine']}) for path in built.pop('files')]
+    built.pop('native_file')
+    return {'artifacts': records, 'engine': 'QElectroTech native XML / ChemELLM',
+            'version': qelectrotech_status().get('version'), **built}
+
+
 def export_cad_part(project: dict, args: dict) -> dict:
     executable = _freecad_executable()
     if not executable:
@@ -1714,7 +1743,8 @@ def execute_tool(project_id: str, p: ExecuteIn):
         project = load_project(project_id)
         execution_id = None
         if project.get('workflow') == 'efficient' and p.tool in (CALC_TOOLS | SPECIAL_TOOLS | GENERATE_TOOLS) and not (
-                p.tool == 'dwsim' and p.args.get('action') in {'status','catalog','inspect','check','layout'}):
+                (p.tool == 'dwsim' and p.args.get('action') in {'status','catalog','inspect','check','layout'}) or
+                (p.tool == 'qelectrotech' and p.args.get('action') in {'status','inspect','check'})):
             execution_id = uid()
             declared = p.args.get('basis_keys', [])
             declared = declared if isinstance(declared,list) else []
@@ -1734,6 +1764,8 @@ def execute_tool(project_id: str, p: ExecuteIn):
             if execution_id:
                 execute('UPDATE runs SET status=?,result=?,updated_at=? WHERE id=?',
                     ('failed', json.dumps({'error':str(exc.detail)}), now(), execution_id))
+            if p.tool == 'qelectrotech' and p.args.get('action') in {'status', 'check', 'inspect'}:
+                raise
             project = load_project(project_id)
             if project.get('workflow') != 'efficient' or p.tool not in (set(SCHEMAS) | SPECIAL_TOOLS):
                 raise
@@ -1767,6 +1799,22 @@ def _execute_tool(project_id: str, p: ExecuteIn, project=None, execution_id=None
         raise HTTPException(status_code=422, detail="该工具不在此入口执行")
     if p.tool not in SCHEMAS and p.tool not in SPECIAL_TOOLS:
         raise HTTPException(status_code=422, detail="未知工具：" + p.tool)
+    if p.tool == 'qelectrotech':
+        try:
+            request = QElectroTechInput.model_validate(p.args)
+            if request.action == 'status':
+                result = qelectrotech_status()
+            elif request.action == 'check':
+                result = {'validation': qelectrotech_bridge.validate(request)}
+            elif request.action == 'inspect':
+                source = efficiency.allowed_path(request.path, task_roots())
+                result = qelectrotech_bridge.inspect(source)
+            else:
+                result = None
+        except (ValueError, OSError) as exc:
+            raise HTTPException(422, str(exc)[:2000]) from exc
+        if result is not None:
+            return {'ok': True, 'tool': p.tool, 'calculationId': None, 'artifacts': [], **_truncate_result(result)}
     if p.tool == 'dwsim':
         try:
             request = DwsimInput.model_validate(p.args)
@@ -1783,7 +1831,8 @@ def _execute_tool(project_id: str, p: ExecuteIn, project=None, execution_id=None
                 with _write_lock:save_project(project)
             return {'ok': True, 'tool': p.tool, 'calculationId': None, 'artifacts': artifacts, **_truncate_result(result)}
     dependency = {'dwsim': 'dwsim', 'export_freecad': 'freecad', 'cad_part': 'freecad',
-                  'cantera_equilibrium': 'cantera', 'cantera_reactor': 'cantera'}.get(p.tool)
+                  'cantera_equilibrium': 'cantera', 'cantera_reactor': 'cantera',
+                  'qelectrotech': 'qelectrotech'}.get(p.tool)
     if dependency:
         from kernel.dependencies import probe
         state = probe(dependency)
@@ -1806,6 +1855,8 @@ def _execute_tool(project_id: str, p: ExecuteIn, project=None, execution_id=None
         result = check_pid(project, p.args or {})
     elif p.tool == "pid_data":
         result = export_pid_data(project, p.args or {})
+    elif p.tool == 'qelectrotech':
+        result = export_qelectrotech(project, p.args or {})
     elif p.tool == "equipment_datasheet":
         result = export_equipment_datasheet(project, p.args or {})
     elif p.tool == "relief_sizing":
@@ -1841,7 +1892,7 @@ def _execute_tool(project_id: str, p: ExecuteIn, project=None, execution_id=None
         **verification,
     }
     if project.get('workflow') == 'efficient':
-        schema = {**SCHEMAS, 'dwsim':DwsimInput, 'export_blender':BlenderInput}.get(p.tool)
+        schema = {**SCHEMAS, 'dwsim':DwsimInput, 'export_blender':BlenderInput, 'qelectrotech':QElectroTechInput}.get(p.tool)
         actual_request = schema.model_validate(p.args).model_dump(mode='json') if schema else p.args
         record.update(solved=result.get('solved'), basis_revisions=result.get('basis_revisions', {}),
                       execution_id=execution_id,
@@ -2048,13 +2099,56 @@ def _dwsim_publish(project_id,p):
 
 
 @app.get("/v1/projects/{project_id}/calculations")
-def list_calculations(project_id: str):
+def list_calculations(project_id: str, view: str | None = None, result_path: str = '',
+                      offset: int = 0, limit: int = 20):
+    if view not in {None, 'full', 'summary'} or result_path:
+        raise HTTPException(422, '字段读取须指定 calculation_id 并使用 view=selected')
+    if view == 'summary':
+        return calculation_summary(project_id, None, offset, limit)
     project = load_project(project_id)
     return {"ok": True, "calculations": project.get("calculations") or []}
 
 
+def calculation_summary(project_id: str, calculation_id: str | None, offset: int, limit: int):
+    if offset < 0 or not 1 <= limit <= 100:
+        raise HTTPException(422, 'offset/limit 无效')
+    if not project_file(project_id).is_file():
+        raise HTTPException(404, '项目不存在')
+    where, args = 'project_id=?', [project_id]
+    if calculation_id is not None:
+        where += ' AND id=?'; args.append(calculation_id)
+    with connection() as db:
+        total = db.execute('SELECT count(*) FROM calculations WHERE '+where, args).fetchone()[0]
+        if calculation_id is not None and not total:
+            raise HTTPException(404, '计算记录不存在或不属于当前项目')
+        records = db.execute('SELECT id,tool,created_at FROM calculations WHERE '+where+
+                             ' ORDER BY created_at,id LIMIT ? OFFSET ?', [*args, limit, offset]).fetchall()
+    return {'ok': True, 'items': [dict(calculationId=r['id'], tool=r['tool'], createdAt=r['created_at'],
+                                      status='recorded') for r in records], 'total': total, 'offset': offset,
+            'next_offset': offset+len(records) if offset+len(records)<total else None,
+            'note': 'recorded 只表示记录存在；求解与校核状态请定向读取 /solved 和 /validation。'}
+
+
 @app.get("/v1/projects/{project_id}/calculations/{calculation_id}")
-def read_calculation(project_id: str, calculation_id: str):
+def read_calculation(project_id: str, calculation_id: str, view: str | None = None,
+                     result_path: str = '', offset: int = 0, limit: int = 20):
+    if view not in {None, 'full', 'summary', 'selected'}:
+        raise HTTPException(422, '未知 view')
+    if view == 'summary':
+        return calculation_summary(project_id, calculation_id, offset, limit)
+    if view == 'selected':
+        if not project_file(project_id).is_file():
+            raise HTTPException(404, '项目不存在')
+        if not one('SELECT id FROM calculations WHERE project_id=? AND id=?', (project_id, calculation_id)):
+            raise HTTPException(404, '计算记录不存在或不属于当前项目')
+        from app.engineering import calculation_read, CalculationRead
+        try:
+            return {'ok': True, **calculation_read(project_id, CalculationRead(calculation_id=calculation_id,
+                                       result_path=result_path, offset=offset, limit=limit))}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    if result_path:
+        raise HTTPException(422, 'result_path 须使用 view=selected')
     load_project(project_id)
     row = one("SELECT * FROM calculations WHERE id=? AND project_id=?", (calculation_id, project_id))
     if not row:
@@ -2105,6 +2199,7 @@ def intake(project_id: str, p: IntakeIn):
         "downloadPath": f"/v1/artifacts/{record['id']}/download",
         "previewPath": f"/v1/artifacts/{record['id']}/preview",
         "origin": "intake",
+        "delivery_role": "internal",
         "sourcePath": str(source),
         "createdAt": _utc(),
     })
@@ -2159,7 +2254,8 @@ def review(project_id: str, p: ReviewIn):
     deliverables = plan.get("deliverables") or []
     objects = [o for o in (project.get("objects") or {}).values() if o.get("quantities")]
     calculations = project.get("calculations") or []
-    files = [f for f in (project.get("files") or []) if f.get("origin") == "generated"]
+    files = [f for f in (project.get("files") or []) if f.get("origin") == "generated"
+             and delivery.file_role(f, project) == 'deliverable']
     if not requirements:
         blockers.append("缺少要求清单（chem_requirements）")
     if not deliverables:
@@ -2217,6 +2313,13 @@ def review(project_id: str, p: ReviewIn):
     if unverified:
         result_warnings.append("以下计算没有显式校验结果，需人工核对：" +
                                "、".join(str(c.get("tool")) for c in unverified[:8]))
+    try:
+        for f in delivery.select_files(project):
+            path = _artifact_path(f['artifactId'])
+            if f.get('sha256') and efficiency.file_digest(path) != f['sha256']:
+                blockers.append('交付文件或资源内容已改变：'+f['name'])
+    except (OSError, ValueError, HTTPException) as exc:
+        blockers.append('交付文件或资源不完整：'+str(getattr(exc, 'detail', exc)))
     result = {
         "ready": not blockers,
         "blockers": blockers,
@@ -2239,142 +2342,80 @@ def review(project_id: str, p: ReviewIn):
     return {"ok": True, "phase": project["phase"], "review": result, "summary": summary_of(project)}
 
 
+class BundleIn(BaseModel):
+    artifact_ids: list[str] | None = Field(default=None, max_length=10000)
+
+
 @app.post("/v1/projects/{project_id}/bundle")
 @project_write
-def bundle(project_id: str):
+def bundle(project_id: str, p: BundleIn | None = None):
     project = load_project(project_id)
+    metadata_by_id = {r['id']: json.loads(r['metadata']) for r in
+                      rows('SELECT id,metadata FROM artifacts WHERE project_id=?', (project_id,))}
+    candidates = []
+    for f in project.get('files', []):
+        metadata = metadata_by_id.get(f.get('artifactId'), {})
+        candidates.append({**{key: metadata[key] for key in
+            ('delivery_role', 'depends_on', 'relative_path', 'scene_group', 'scene_path', 'source') if key in metadata}, **f})
+    selection_project = {**project, 'files': candidates}
+    try:
+        packaged_files = delivery.select_files(selection_project, p.artifact_ids if p else None)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in project["name"])[:60] or "chemellm"
     filename = f"{safe_name}-{stamp}-{uid()[:8]}.zip"
     target = BUNDLES_DIR / filename
-    manifest = {
-        "kernelVersion": KERNEL_VERSION,
-        "project": summary_of(project),
-        "generatedAt": _utc(),
-        "files": [],
-        "deliverables": project.get('plan', {}).get('deliverables', []),
-    }
-    with _bundle_archive(target) as archive:
-        archive.writestr("project.json", json.dumps({k:v for k,v in project.items() if not k.startswith('_store_')}, ensure_ascii=False, indent=2))
-        archive.writestr("requirements.json", json.dumps(project.get("requirements") or [], ensure_ascii=False, indent=2))
-        archive.writestr("plan.json", json.dumps(project.get("plan") or {}, ensure_ascii=False, indent=2))
-        archive.writestr("calculations.json", json.dumps(project.get("calculations") or [], ensure_ascii=False, indent=2))
-        archive.writestr('references.json', json.dumps(project.get('references') or [], ensure_ascii=False, indent=2))
-        if project.get('workflow') == 'efficient':
-            archive.writestr('source-groups.json', json.dumps(project.get('source_groups', {}), ensure_ascii=False, indent=2))
-        if project.get('prices'):
-            for name in ('prices.json', 'history.json'):
-                path = project_dir(project_id) / 'prices' / name
-                arcname = 'prices/' + name
-                content = path.read_bytes()
-                archive.writestr(arcname, content)
-                manifest['files'].append({'name': name, 'archivePath': arcname,
-                                          'sha256': hashlib.sha256(content).hexdigest()})
-        if project.get('workflow') == 'efficient':
-            adopted = {cid for d in project.get('plan', {}).get('deliverables', []) for cid in d.get('calculation_ids', [])}
-            for cid in adopted:
-                calculation = one('SELECT * FROM calculations WHERE project_id=? AND id=?', (project_id,cid))
-                if calculation:
-                    archive.writestr('calculation-results/'+cid+'.json', json.dumps(dict(calculation), ensure_ascii=False, indent=2))
-                else:
-                    raise HTTPException(409, '采用的计算记录缺失：'+cid)
-        packaged_files = efficiency.delivery_files(project) if project.get('workflow') == 'efficient' else project.get('files') or []
-        for artifact in packaged_files:
-            aid = artifact.get("artifactId")
-            if not aid:
-                continue
-            try:
-                path = _artifact_path(aid)
-            except HTTPException:
-                if project.get('workflow') == 'efficient':
-                    raise HTTPException(409, '映射成果缺失，未生成有效包：'+aid)
-                manifest["files"].append({"artifactId": aid, "name": artifact.get("name"), "missing": True})
-                continue
-            if path.stat().st_size > MAX_BUNDLE_ARTIFACT and not artifact.get('registration_id'):
-                manifest["files"].append({"artifactId": aid, "name": artifact.get("name"),
-                                          "skipped": "too_large", "limitBytes": MAX_BUNDLE_ARTIFACT})
-                continue
-            # Artifact names can repeat (multiple P&ID exports, several CAD parts);
-            # prefix with the artifact id so every archive entry stays unique.
-            arcname = "files/" + aid[:8] + "-" + path.name
-            if artifact.get('registration_id'):
-                arcname = 'deliverables/'+artifact['registration_id']+'/'+efficiency.relative_path(artifact['relative_path'])
-            row = one('SELECT metadata FROM artifacts WHERE id=?', (aid,))
-            metadata = json.loads(row['metadata']) if row else {}
-            if metadata.get('source') == 'kernel export_blender':
-                relative = Path(metadata['scene_path'])
-                group = str(metadata['scene_group'])
-                if relative.is_absolute() or '..' in relative.parts or group != path.parents[len(relative.parts)-1].name:
-                    raise HTTPException(status_code=422, detail='三维成果归档路径无效')
-                arcname = 'scenes/'+group+'/'+relative.as_posix()
-            hashing = hashlib.sha256()
-            # Hash the same stream actually placed in the archive, never a prior read.
-            with path.open('rb') as source, archive.open(arcname, 'w', force_zip64=True) as member:
-                for block in iter(lambda: source.read(1024*1024), b''):
-                    hashing.update(block)
-                    member.write(block)
-            digest = hashing.hexdigest()
-            if project.get('workflow') == 'efficient' and artifact.get('sha256') and digest != artifact['sha256']:
-                raise HTTPException(status_code=409, detail='成果内容已变化，未生成有效包：'+artifact['name'])
-            manifest["files"].append({
-                "artifactId": aid,
-                "name": artifact.get("name"),
-                "archivePath": arcname,
-                "sha256": digest,
-                "deliverable_keys": artifact.get('deliverable_keys', []),
-                "calculation_id": artifact.get('calculation_id'),
-            })
-        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-        steps = []
-        for record in project.get("calculations") or []:
-            tool = record.get("tool")
-            args = record.get("args") or {}
-            if not tool:
-                continue
-            steps.append("- `{tid}`：POST `/v1/projects/{{projectId}}/execute`，body = `{body}`".format(
-                tid=record.get("calculationId") or "?",
-                body=json.dumps({"tool": tool, "args": args}, ensure_ascii=False),
-            ))
-        recompute = "\n".join([
-            "# 复算说明（recompute）",
-            "",
-            "本包由本地 ChemELLM 内核生成；`project.json` / `requirements.json` / `plan.json` / "
-            "`calculations.json` 是工程数据，`files/` 是成果原件，`manifest.json` 记录文件哈希。",
-            "",
-            "## 复算步骤",
-            "1. 启动 Codex MCP，或启动 HTTP 内核：`scripts\\start-kernel.cmd`（默认 http://127.0.0.1:8766）。",
-            "2. 新建空项目或复用原项目 ID，按 `calculations.json` 顺序重放下列请求：",
-            "",
-            *(steps or ["（本项目没有可重放的计算记录）"]),
-            "",
-            "3. 重新生成成果文件（DOCX/PDF/SVG/DXF/xlsx/FCStd/STEP/blend/GLB/PNG）并调用 `chem_review` 自检。",
-            "4. 校验：对 `files/` 中每个文件计算 SHA256，与 `manifest.json` 比较。",
-            "",
-            "## 边界",
-            "- 自动校核 ≠ 专业审核；本包为工作草稿，审核状态以项目记录为准。",
-            "- 复算只保证同一输入下模型可重放；不证明模型假设、物性或工程结论正确。",
-            "- 环境差异（Python/FreeCAD/Blender/LibreOffice 版本）可能改变文件字节，数值结果以 JSON 字段为准。",
-            "",
-        ])
-        archive.writestr("recompute.md", recompute)
-        archive.writestr("README.txt", (
-            "ChemELLM local kernel delivery bundle.\n"
-            "Generated locally; every file above is referenced by manifest.json.\n"
-            "Replay instructions: recompute.md.\n"
-            "This bundle is a work draft: automatic checks and professional review are separate.\n"
-        ))
-    digest = efficiency.file_digest(target)
-    entry = {
-        "name": filename,
-        "bytes": target.stat().st_size,
-        "sha256": digest,
-        "createdAt": _utc(),
-        "downloadPath": f"/v1/bundles/{filename}",
-    }
-    project["bundle"] = entry
-    with _write_lock:
-        save_project(project)
-    return {"ok": True, "phase": project["phase"], "bundle": entry, "summary": summary_of(project)}
+    manifest_path = target.with_suffix('.manifest.json')
+    manifest = {'schemaVersion': 2, 'kernelVersion': KERNEL_VERSION, 'project': summary_of(project),
+                'generatedAt': _utc(), 'files': []}
+    names = set()
+    try:
+        with _bundle_archive(target) as archive:
+            for artifact in packaged_files:
+                aid = artifact['artifactId']
+                try:
+                    path = _artifact_path(aid)
+                except HTTPException as exc:
+                    raise HTTPException(409, '映射成果缺失，未生成有效包：'+aid) from exc
+                if path.stat().st_size > MAX_BUNDLE_ARTIFACT and not artifact.get('registration_id'):
+                    raise HTTPException(409, '成果超过打包上限，未生成不完整包：'+artifact['name'])
+                arcname = 'files/'+aid[:8]+'-'+path.name
+                if artifact.get('registration_id'):
+                    arcname = 'deliverables/'+artifact['registration_id']+'/'+efficiency.relative_path(artifact['relative_path'])
+                elif artifact.get('scene_group'):
+                    arcname = 'scenes/'+efficiency.relative_path(artifact['scene_group'])+'/'+efficiency.relative_path(artifact['scene_path'])
+                if arcname.casefold() in names:
+                    raise HTTPException(409, '成果入包路径重复：'+arcname)
+                names.add(arcname.casefold())
+                hashing = hashlib.sha256()
+                with path.open('rb') as source, archive.open(arcname, 'w', force_zip64=True) as member:
+                    for block in iter(lambda: source.read(1024*1024), b''):
+                        hashing.update(block)
+                        member.write(block)
+                digest = hashing.hexdigest()
+                if artifact.get('sha256') and digest != artifact['sha256']:
+                    raise HTTPException(409, '成果内容已变化，未生成有效包：'+artifact['name'])
+                manifest['files'].append({'artifactId': aid, 'name': artifact['name'], 'archivePath': arcname,
+                    'sha256': digest, 'delivery_role': delivery.file_role(artifact, project),
+                    'deliverable_keys': artifact.get('deliverable_keys', []), 'calculation_id': artifact.get('calculation_id')})
+            content = delivery.instructions(project, manifest).encode('utf-8')
+            archive.writestr('交付说明.md', content)
+            manifest['files'].append({'name': '交付说明.md', 'archivePath': '交付说明.md',
+                'sha256': hashlib.sha256(content).hexdigest(), 'delivery_role': 'instructions'})
+        digest = efficiency.file_digest(target)
+        manifest['bundleSha256'] = digest
+        _atomic(manifest_path, manifest)
+        entry = {'name': filename, 'bytes': target.stat().st_size, 'sha256': digest, 'createdAt': _utc(),
+                 'downloadPath': f'/v1/bundles/{filename}'}
+        project['bundle'] = entry
+        with _write_lock:
+            save_project(project)
+    except Exception:
+        target.unlink(missing_ok=True)
+        manifest_path.unlink(missing_ok=True)
+        raise
+    return {'ok': True, 'phase': project['phase'], 'bundle': entry, 'summary': summary_of(project)}
 
 
 from contextlib import contextmanager

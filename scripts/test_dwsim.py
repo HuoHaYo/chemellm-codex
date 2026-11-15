@@ -184,7 +184,12 @@ class DwsimTests(unittest.TestCase):
         self.assertEqual(complete['result']['version'], created['result']['version'])
         bundle = self.post('/bundle', {})['bundle']
         with zipfile.ZipFile(io.BytesIO(self.client.get('/v1/bundles/'+bundle['name']).content)) as archive:
-            for item in json.loads(archive.read('manifest.json'))['files']:
+            manifest = json.loads((server.BUNDLES_DIR/bundle['name']).with_suffix('.manifest.json').read_text(encoding='utf-8'))
+            native_files = [f for f in manifest['files'] if f['name'].endswith('.dwxmz')]
+            self.assertEqual(len(native_files), 1)
+            self.assertEqual(server._artifact_path(native_files[0]['artifactId']), self.native(changed))
+            self.assertFalse(any(n.endswith(('.json', '.log', '.py')) for n in archive.namelist()))
+            for item in manifest['files']:
                 self.assertEqual(hashlib.sha256(archive.read(item['archivePath'])).hexdigest(), item['sha256'])
 
     @unittest.skipUnless(server.dwsim_bridge.status()['ready'], '本机没有 DWSIM 运行环境')

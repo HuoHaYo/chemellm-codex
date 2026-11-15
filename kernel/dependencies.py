@@ -21,10 +21,12 @@ import uuid
 
 from pydantic import Field
 from app.schemas import Inputs
-from app.external_tools import find_dwsim_home, find_freecad, find_libreoffice, blender_status
+from app.external_tools import find_dwsim_home, find_freecad, find_libreoffice, blender_status, qelectrotech_status
 from app.pricing import _atomic
 
 CATALOG = {
+    'qelectrotech': {'name': 'QElectroTech', 'purpose': '生成可编辑电气接线工程，核对端子、导线与电缆芯线。',
+                    'source': 'https://qelectrotech.org/download.php', 'license': 'GPL-2.0-or-later；保留官方 LICENSE 与符号库许可'},
     'blender': {'name': 'Blender', 'package_id': 'BlenderFoundation.Blender',
                 'purpose': '生成化工厂演示场景、原生 blend、GLB 和 PNG；CAD 导入另需 FreeCAD。',
                 'source': 'https://www.blender.org/download/', 'license': 'GPL-3.0-or-later，按发行包核对'},
@@ -68,6 +70,8 @@ def probe(dependency: str) -> dict:
     result = {'dependency': dependency, **CATALOG[dependency]}
     if dependency == 'blender':
         result.update(blender_status())
+    elif dependency == 'qelectrotech':
+        result.update(qelectrotech_status())
     elif dependency == 'cantera':
         code = (
             "import json,importlib.util; available=importlib.util.find_spec('cantera') is not None; "
@@ -113,6 +117,19 @@ class DependencyManager:
     def _recipe(self, dependency):
         if os.name != 'nt':
             raise ValueError('自动安装目前支持 Windows；其他平台由当前会话核对官方安装方式后另行询问')
+        if dependency == 'qelectrotech':
+            import runpy
+            script = self.workspace/'scripts/install-qelectrotech.py'
+            recipe = runpy.run_path(str(script))
+            if not recipe['seven_zip']():
+                raise ValueError('需要已有 7-Zip 解包官方程序；不自动安装其他前置软件')
+            return {'commands': [[sys.executable, '-X', 'utf8', str(script)]],
+                    'method': 'official-payload',
+                    'target': str(Path(os.environ['LOCALAPPDATA'])/'Programs/QElectroTech'),
+                    'version': '0.100.0 git8590', 'package_source': recipe['URL'],
+                    'sha256': recipe['SHA256'],
+                    'effects': ['下载固定版本官方包并核对 SHA256，使用已有 7-Zip 提取到当前用户 Programs。',
+                                '保留官方许可和符号库；不执行管理员安装器，不修改文件关联，不覆盖已有目录。']}
         if dependency == 'cantera':
             if sys.prefix == sys.base_prefix:
                 raise ValueError('Cantera 只能安装到本插件的独立虚拟环境；请先按安装说明启用本仓库 .venv')
@@ -270,6 +287,11 @@ class DependencyManager:
         return env
 
     def _verify(self, dependency, state, logs):
+        if dependency == 'qelectrotech':
+            if not state.get('ready'):
+                raise RuntimeError('QElectroTech 0.100 程序版本检查失败')
+            return {'passed': True, 'version': state.get('version'),
+                    'scope': '启动原生程序并读取版本；项目 GUI 重载和专业审核另行确认'}
         if dependency == 'blender':
             if not state.get('ready'):
                 raise RuntimeError('Blender 后台/glTF/Eevee 接口检查失败')

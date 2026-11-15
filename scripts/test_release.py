@@ -32,6 +32,13 @@ class ReleaseTests(unittest.TestCase):
                     fingerprint.update(name.removeprefix(prefix).encode()+b'\0')
                     fingerprint.update(hashlib.sha256(archive.read(name)).digest())
                 self.assertEqual(manifest['skillFingerprint'],fingerprint.hexdigest())
+                whole=hashlib.sha256()
+                prefix=root+'codex-plugin/skills/'
+                for name in sorted(n for n in archive.namelist() if n.startswith(prefix)):
+                    whole.update(name.removeprefix(prefix).encode()+b'\0')
+                    whole.update(hashlib.sha256(archive.read(name)).digest())
+                self.assertEqual(manifest['skillSetFingerprint'],whole.hexdigest())
+                self.assertEqual(len(manifest['skills']),5)
                 self.assertIn(root+'app/project_store.py',archive.namelist())
                 self.assertIn(root+'kernel/efficient.py',archive.namelist())
                 self.assertEqual(len(manifest["files"]) + 1, len(archive.namelist()))

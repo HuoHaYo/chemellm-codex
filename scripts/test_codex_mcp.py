@@ -55,7 +55,8 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
             command=sys.executable,
             args=(["-X", "utf8", str(ROOT/'scripts/fixtures/stdio_concurrency.py'), str(self.storage)]
                   if getattr(self, 'concurrency_fixture', False) else
-                  ["-X", "utf8", "-m", "chemellm_codex", "--workspace", str(ROOT), "--data-root", str(self.storage)]),
+                  ["-X", "utf8", "-m", "chemellm_codex", "--workspace", str(ROOT), "--data-root", str(self.storage),
+                   *self.pairing_arguments()]),
             cwd=str(self.folder), env=env,
         )
         try:
@@ -83,6 +84,45 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 self.temporary.cleanup()
 
+    def pairing_arguments(self):
+        if not getattr(self, 'paired_skills', False):
+            return []
+        from chemellm_codex import skill_fingerprint
+        return ['--skill-fingerprint',skill_fingerprint(ROOT/'codex-plugin/skills/chemellm-engineering'),
+                '--skill-set-fingerprint',skill_fingerprint(ROOT/'codex-plugin/skills')]
+
+    async def test_lightweight_discovery_selected_reads_and_skill_set_stdio(self):
+        self.paired_skills = True
+        await self.start_session()
+        try:
+            health = await self.call('chem_health')
+            self.assertEqual(health['skillPairing'],'matched')
+            self.assertEqual(health['skillSetPairing'],'matched')
+            self.assertEqual(len(health['skills']),5)
+            self.assertEqual(len((await self.session.list_tools()).tools),34)
+            page = await self.call('chem_tools',view='summary',category='dwsim')
+            self.assertEqual([r['id'] for r in page['items']],['dwsim'])
+            self.assertNotIn('schema',page['items'][0])
+            self.assertIn('action',(await self.call('chem_tools',tool='dwsim'))['schema']['properties'])
+            ident = (await self.call('chem_project_init',request={'name':'selected stdio','task_kind':'simulation'}))['project']['projectId']
+            trial = await self.call('chem_execute',project_id=ident,tool='convert_units',
+                                    args={'value':3600,'from_unit':'kg/h','to_unit':'kg/s'})
+            calc = trial['calculationId']
+            summary = await self.call('chem_calculations',project_id=ident,view='summary',limit=1)
+            self.assertEqual(summary['items'][0]['calculationId'],calc)
+            self.assertNotIn('result',summary['items'][0])
+            full = await self.call('chem_calculations',project_id=ident,calculation_id=calc)
+            field = next(iter(full['result']))
+            selected = await self.call('chem_calculations',project_id=ident,calculation_id=calc,view='selected',
+                                      result_path='/'+field.replace('~','~0').replace('/','~1'))
+            self.assertEqual(selected['value'],full['result'][field])
+            for payload in (page,summary,selected):
+                self.assertLess(len(json.dumps(payload,ensure_ascii=False).encode()),32768)
+            failed = await self.session.call_tool('chem_calculations',{'project_id':ident,'view':'selected'})
+            self.assertTrue(failed.isError)
+        finally:
+            await self.close_session()
+
     async def call(self, tool_name: str, **arguments) -> dict:
         if tool_name == "chem_create_project":
             arguments.setdefault("workflow", "legacy")
@@ -91,6 +131,30 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         if response.structuredContent is not None:
             return response.structuredContent
         return json.loads(response.content[0].text)
+
+    @connected
+    async def test_qelectrotech_native_wiring_stdio(self):
+        self.assertEqual(len((await self.session.list_tools()).tools), 34)
+        dependency = await self.call('chem_dependencies', dependency='qelectrotech')
+        self.assertTrue(dependency['dependencies'][0]['ready'], dependency)
+        schema = await self.call('chem_tools', tool='qelectrotech')
+        self.assertIn('folios', schema['schema']['properties'])
+        ident = (await self.call('chem_project_init', request={'name': 'QET stdio', 'task_kind': 'research'}))['project']['projectId']
+        example = json.loads((ROOT/'docs/examples/qelectrotech-loop.json').read_text(encoding='utf-8'))
+        check = {**example, 'action': 'check'}
+        checked = await self.call('chem_execute', project_id=ident, tool='qelectrotech', args=check)
+        self.assertIsNone(checked['calculationId'])
+        self.assertTrue(checked['result']['validation']['passed'])
+        made = await self.call('chem_execute', project_id=ident, tool='qelectrotech', args=example)
+        self.assertTrue(made['verification']['validation']['passed'])
+        self.assertIn('qet', {a['kind'] for a in made['artifacts']})
+        selected = await self.call('chem_calculations', project_id=ident, calculation_id=made['calculationId'],
+                                   view='selected', result_path='/validation/counts')
+        self.assertEqual(selected['value']['wires'], 6)
+        self.assertTrue(all(a['delivery_role'] == 'internal' for a in made['artifacts'] if a['kind'] == 'json'))
+        status = await self.call('chem_execute', project_id=ident, tool='qelectrotech', args={'action': 'status'})
+        self.assertTrue(status['result']['ready'])
+        self.assertEqual((await self.call('chem_calculations', project_id=ident, view='summary'))['total'], 1)
 
     async def test_efficient_workflow_client_roots_and_summary_stdio(self):
         self.use_roots = True
@@ -114,8 +178,13 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(page['items'][0]['data']['actual_request']['value'],3600)
             full = await self.session.read_resource('chemellm://projects/'+ident)
             self.assertIn('calculations',json.loads(full.contents[0].text)['project'])
-            self.assertTrue((await self.call('chem_review',project_id=ident))['review']['ready'])
-            self.assertTrue((await self.call('chem_bundle',project_id=ident))['bundle']['sha256'])
+            reviewed = await self.call('chem_review',project_id=ident)
+            self.assertTrue(reviewed['review']['ready'])
+            self.assertEqual(reviewed['summary']['phase'], 'done')
+            self.assertEqual(list((self.storage/'bundles').glob('*.zip')), [])
+            files = await self.call('chem_records',project_id=ident,section='files')
+            artifact_id = files['items'][0]['data']['artifactId']
+            self.assertTrue((await self.call('chem_bundle',project_id=ident,artifact_ids=[artifact_id]))['bundle']['sha256'])
         finally:
             await self.close_session()
 
@@ -161,7 +230,7 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tools['chem_dependency_install'].inputSchema['properties']['confirmed']['default'])
         inventory = await self.call('chem_dependencies')
         self.assertEqual({item['dependency'] for item in inventory['dependencies']},
-                         {'dwsim', 'freecad', 'libreoffice', 'cantera', 'blender'})
+                         {'dwsim', 'freecad', 'libreoffice', 'cantera', 'blender', 'qelectrotech'})
         for item in inventory['dependencies']:
             self.assertIsInstance(item['ready'], bool)
             self.assertTrue(item['source'].startswith('https://'))
@@ -302,10 +371,12 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         bundle_path = Path(bundle["localPath"])
         self.assertEqual(hashlib.sha256(bundle_path.read_bytes()).hexdigest(), bundle["sha256"])
         with zipfile.ZipFile(bundle_path) as archive:
-            manifest = json.loads(archive.read("manifest.json"))
+            manifest = json.loads(bundle_path.with_suffix('.manifest.json').read_text(encoding='utf-8'))
             for item in manifest["files"]:
                 self.assertEqual(hashlib.sha256(archive.read(item["archivePath"])).hexdigest(), item["sha256"])
-            self.assertIn("8766", archive.read("recompute.md").decode("utf-8"))
+            self.assertIn('交付说明.md', archive.namelist())
+            self.assertNotIn('recompute.md', archive.namelist())
+            self.assertNotIn('manifest.json', archive.namelist())
         resource = await self.session.read_resource(f"chemellm://projects/{project_id}")
         self.assertEqual(json.loads(resource.contents[0].text)["project"]["id"], project_id)
         resource = await self.session.read_resource(f"chemellm://calculations/{project_id}/{calculation_id}")
@@ -516,11 +587,9 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('160 degC', json.dumps(snapshot, ensure_ascii=False))
         state = (await self.call('chem_project', project_id=project_id))['project']
         self.assertEqual(state['references'][0]['revision'], 2)
-        bundle = (await self.call('chem_bundle', project_id=project_id))['bundle']
-        with zipfile.ZipFile(bundle['localPath']) as archive:
-            self.assertEqual(json.loads(archive.read('references.json'))[0]['revision'], 2)
-            for item in json.loads(archive.read('manifest.json'))['files']:
-                self.assertEqual(hashlib.sha256(archive.read(item['archivePath'])).hexdigest(), item['sha256'])
+        no_files = await self.session.call_tool('chem_bundle', {'project_id': project_id})
+        self.assertTrue(no_files.isError)
+        self.assertIn('无可交付文件', no_files.content[0].text)
         image_path = self.storage/'测试资料图像.png'
         with Image.new('RGB', (450, 140), 'white') as image:
             ImageDraw.Draw(image).text((15, 40), 'Test limit 160 degC', fill='black')

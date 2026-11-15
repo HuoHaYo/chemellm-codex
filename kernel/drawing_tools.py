@@ -425,16 +425,18 @@ def _dxf(width: float, height: float, primitives: list[tuple], path: Path) -> No
     from ezdxf.enums import TextEntityAlignment
 
     doc = ezdxf.new("R2010")
+    from drawing_style import configure_dxf, line_attributes
     msp = doc.modelspace()
     for layer, color in (("EQUIPMENT", 5), ("PROCESS", 7), ("SIGNAL", 3), ("INTERLOCK", 1), ("TEXT", 7), ("FRAME", 8)):
         if layer not in doc.layers:
             doc.layers.add(layer, color=color)
+    configure_dxf(doc)
     for primitive in primitives:
         kind = primitive[0]
         if kind == "line":
             _, x1, y1, x2, y2, color, line_width, dash = primitive
             layer = "SIGNAL" if color == PALETTE["signal"] else ("INTERLOCK" if color == PALETTE["interlock"] else "PROCESS")
-            msp.add_line((x1, height - y1), (x2, height - y2), dxfattribs={"layer": layer})
+            msp.add_line((x1, height - y1), (x2, height - y2), dxfattribs=line_attributes(layer, line_width, dash))
         elif kind == "rect":
             _, x, y, w, h, fill, stroke, line_width, radius = primitive
             msp.add_lwpolyline([

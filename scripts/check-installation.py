@@ -7,6 +7,8 @@ import asyncio
 import json
 from pathlib import Path
 import tempfile
+import os
+import sys
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -14,8 +16,44 @@ from mcp.client.stdio import stdio_client
 ROOT = Path(__file__).resolve().parents[1]
 
 
-async def check(config_path: Path) -> None:
-    config = json.loads(config_path.read_text(encoding="utf-8"))["mcpServers"]["chemellm"]
+def validate_skill_tree(plugin_root: Path, expected: str, expected_set: str):
+    from chemellm_codex import skill_fingerprint, skill_inventory
+    skills = plugin_root/'skills'
+    if not (skills/'chemellm-engineering/SKILL.md').is_file():
+        raise ValueError('技能目录不存在：'+str(plugin_root))
+    if not expected or skill_fingerprint(skills/'chemellm-engineering') != expected:
+        raise ValueError('公共技能指纹未配置或不匹配：'+str(plugin_root))
+    if not expected_set or skill_fingerprint(skills) != expected_set:
+        source = {r['name']:r['fingerprint'] for r in skill_inventory(ROOT/'codex-plugin/skills')}
+        actual = {r['name']:r['fingerprint'] for r in skill_inventory(skills)}
+        changed = sorted(name for name in source.keys() | actual.keys() if source.get(name) != actual.get(name))
+        raise ValueError('整套技能指纹未配置或不匹配：'+str(plugin_root)+'；差异技能：'+', '.join(changed))
+
+
+def validate_configuration(config_path, plugin_root=None, source_only=False):
+    config = json.loads(config_path.read_text(encoding='utf-8'))['mcpServers']['chemellm']
+    def flag(name):
+        args = config['args']
+        return next((args[i+1] for i in range(len(args)-1) if args[i] == name), '')
+    expected, expected_set = flag('--skill-fingerprint'), flag('--skill-set-fingerprint')
+    validate_skill_tree(ROOT/'codex-plugin', expected, expected_set)
+    if not source_only:
+        if plugin_root is None:
+            version = json.loads((ROOT/'codex-plugin/.codex-plugin/plugin.json').read_text(encoding='utf-8'))['version']
+            codex_root = Path(os.environ.get('CODEX_HOME', str(Path.home()/'.codex')))
+            candidates = list((codex_root/'plugins/cache').glob('*/chemellm/'+version))
+            if len(candidates) != 1:
+                raise ValueError('无法唯一定位实际插件缓存；请用 --plugin-root 指定，或安装前用 --source-only')
+            plugin_root = candidates[0]
+        validate_skill_tree(plugin_root, expected, expected_set)
+        cached = json.loads((plugin_root/'.mcp.json').read_text(encoding='utf-8'))['mcpServers']['chemellm']
+        if cached != config:
+            raise ValueError('已安装缓存的启动配置与待检查配置不同：'+str(plugin_root))
+    return config
+
+
+async def check(config_path: Path, plugin_root: Path | None = None, source_only=False) -> None:
+    config = validate_configuration(config_path, plugin_root, source_only)
     with tempfile.TemporaryDirectory(prefix="chemellm-install-check-") as temporary:
         parameters = StdioServerParameters(
             command=config["command"], args=[*config["args"], "--data-root", temporary],
@@ -32,6 +70,8 @@ async def check(config_path: Path) -> None:
                 assert health["phaseGate"] == "enforce", health
                 assert health['workflowVersion'] == 2, health
                 assert health['skillPairing'] == 'matched', health
+                assert health['skillSetPairing'] == 'matched', health
+                assert len(health['skills']) == 5, health['skills']
                 plugin = json.loads((ROOT/'codex-plugin/.codex-plugin/plugin.json').read_text(encoding='utf-8'))
                 assert health['version'] == plugin['version'], health
                 tools = await session.list_tools()
@@ -46,8 +86,10 @@ async def check(config_path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / "codex-plugin" / ".mcp.json")
+    parser.add_argument('--plugin-root', type=Path, help='Actual installed plugin cache directory')
+    parser.add_argument('--source-only', action='store_true', help='Pre-install check; does not claim installed cache verification')
     options = parser.parse_args()
-    asyncio.run(check(options.config))
+    asyncio.run(check(options.config, options.plugin_root, options.source_only))
 
 
 if __name__ == "__main__":

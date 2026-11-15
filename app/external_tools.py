@@ -10,7 +10,13 @@ from functools import lru_cache
 
 
 def _first(candidates):
-    return next((Path(path).resolve() for path in candidates if path and Path(path).is_file()), None)
+    for path in candidates:
+        try:
+            if path and Path(path).is_file():
+                return Path(path).resolve()
+        except OSError:
+            continue
+    return None
 
 
 def find_freecad() -> Path | None:
@@ -90,3 +96,52 @@ def find_dwsim_home() -> Path | None:
     candidates += [Path(os.environ.get('ProgramFiles', r'C:\Program Files'))/'DWSIM',
                    Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))/'DWSIM']
     return next((home.resolve() for home in candidates if (home/'DWSIM.Automation.dll').is_file()), None)
+
+
+def find_qelectrotech() -> Path | None:
+    candidates = []
+    if os.environ.get('QELECTROTECH_HOME'):
+        home = Path(os.environ['QELECTROTECH_HOME'])
+        candidates += [home, home/'bin/qelectrotech.exe', home/'qelectrotech.exe', home/'bin/qelectrotech']
+    candidates.append(shutil.which('qelectrotech'))
+    local = Path(os.environ.get('LOCALAPPDATA', str(Path.home()/'AppData/Local')))
+    for root in (local/'Programs', Path(os.environ.get('ProgramFiles', r'C:\Program Files')),
+                 Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))):
+        candidates += [root/'QElectroTech/bin/qelectrotech.exe', root/'QElectroTech/qelectrotech.exe']
+    candidates += [Path('/usr/bin/qelectrotech'), Path('/Applications/qelectrotech.app/Contents/MacOS/qelectrotech')]
+    return _first(candidates)
+
+
+@lru_cache(maxsize=8)
+def _qet_version(path: str, modified: int):
+    env = dict(os.environ)
+    env['QT_QPA_PLATFORM'] = 'windows' if os.name == 'nt' else 'offscreen'
+    flags = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
+    result = subprocess.run([path, '--version'], cwd=Path(path).parent, env=env,
+        capture_output=True, stdin=subprocess.DEVNULL, text=True, encoding='utf-8', errors='replace', timeout=15, **flags)
+    import re
+    match = re.search(r'(?im)^(?:QElectroTech\s+)?(?:v)?([0-9]+\.[0-9]+[^\s]*)', result.stdout+'\n'+result.stderr)
+    if result.returncode == 0 and not match and not result.stdout.strip():
+        # QET's single-instance launcher forwards --version to an already open
+        # GUI without printing it. Only accept this exact official binary.
+        import hashlib
+        if hashlib.sha256(Path(path).read_bytes()).hexdigest() == 'fcc3465825cc6f1bf3997d9c8054858e647a2038c8c01b7a3335a914106de926':
+            return '0.100.0'
+    if result.returncode or not match:
+        raise RuntimeError('QElectroTech 版本命令失败：'+(result.stdout+result.stderr)[-800:])
+    return match.group(1)
+
+
+def qelectrotech_status() -> dict:
+    path = find_qelectrotech()
+    result = {'installed': bool(path), 'ready': False, 'path': str(path) if path else '',
+              'native_format': '.qet', 'batch_export': False,
+              'preview_engine': 'ChemELLM vectors / ReportLab'}
+    if path:
+        try:
+            version = _qet_version(str(path), path.stat().st_mtime_ns)
+            result.update(version=version, ready=version.startswith('0.100'),
+                          note='适配 QET 0.100；原生 GUI 重载与专业审核另行确认。')
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            result['error'] = str(exc)[-1000:]
+    return result

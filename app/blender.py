@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Literal
 from pydantic import Field, model_validator
 from app.schemas import Inputs
+from app.pipe_geometry import pipe_path
 
 Vector = tuple[float, float, float]
 
@@ -24,6 +25,8 @@ class SceneItem(Inputs):
     width: float | None = Field(default=None, gt=0)
     height: float | None = Field(default=None, gt=0)
     diameter: float | None = Field(default=None, gt=0)
+    bend_radius: float | None = Field(default=None, gt=0,
+        description='管道弯曲中心线半径，与 units 同单位；未填采用 1.5D 展示假设，不代表已选管件')
     points: list[Vector] = Field(default_factory=list, max_length=1000,
                                  description='管道/道路/围墙的局部路径；再应用 position 和 rotation_deg')
     bays: int = Field(default=4, ge=1, le=100, description='管廊沿 length 的跨数')
@@ -54,6 +57,10 @@ class SceneItem(Inputs):
                 raise ValueError(f'{self.id}: 路径至少含两个点，且相邻点不能重合')
         elif self.points:
             raise ValueError('points 仅用于 pipe/road/fence')
+        if self.kind == 'pipe':
+            pipe_path(self.points, self.diameter, self.bend_radius)
+        elif self.bend_radius is not None:
+            raise ValueError('bend_radius 仅用于 pipe')
         if self.kind == 'cad':
             if not self.path:
                 raise ValueError('cad 必须指定 path')

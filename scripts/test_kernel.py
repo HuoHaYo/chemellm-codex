@@ -94,11 +94,13 @@ class KernelWorkflowTests(unittest.TestCase):
         self.assertEqual(downloaded.status_code, 200)
         review = self.post("/review", {"note": "refactor regression"})
         self.assertTrue(review["review"]["ready"], review)
+        self.assertEqual(review['phase'], 'done')
+        self.assertIsNone(self.client.get(self.base).json()['project']['bundle'])
         bundle = self.post("/bundle", {})
         response = self.client.get("/v1/bundles/" + bundle["bundle"]["name"])
         self.assertEqual(response.status_code, 200)
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-            manifest = json.loads(archive.read("manifest.json"))
+            manifest = json.loads((Path(_temporary.name)/'bundles'/bundle['bundle']['name']).with_suffix('.manifest.json').read_text(encoding='utf-8'))
             for item in manifest["files"]:
                 self.assertEqual(hashlib.sha256(archive.read(item["archivePath"])).hexdigest(), item["sha256"])
         basis["quantities"][0]["value"] = 120
@@ -137,11 +139,9 @@ class KernelWorkflowTests(unittest.TestCase):
         self.assertEqual(bad.status_code, 422)
         current = self.client.get(self.base).json()['project']['objects']['basis/feed']
         self.assertEqual(current, third['object'])
-        archive = self.post('/bundle', {})
-        data = self.client.get('/v1/bundles/'+archive['bundle']['name']).content
-        with zipfile.ZipFile(io.BytesIO(data)) as zipped:
-            project_paths = [p for p in zipped.namelist() if p.endswith('project.json')]
-            self.assertTrue(any(json.loads(zipped.read(p)).get('objects', {}).get('basis/feed') == current for p in project_paths))
+        # Provenance remains available internally; a basis-only task has no final files.
+        self.assertEqual(self.client.post(self.base+'/bundle', json={}).status_code, 409)
+        self.assertEqual(self.client.get(self.base).json()['project']['objects']['basis/feed'], current)
 
     def test_assumed_basis_warns_without_blocking_design_and_validates_calculation_link(self):
         from test_basis_selection import quantity, derived
@@ -344,9 +344,9 @@ class KernelWorkflowTests(unittest.TestCase):
         bundle = self.post('/bundle', {})['bundle']
         archive_bytes = self.client.get('/v1/bundles/' + bundle['name']).content
         with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-            self.assertIn('prices/prices.json', archive.namelist())
-            self.assertIn('prices/history.json', archive.namelist())
-            for entry in json.loads(archive.read('manifest.json'))['files']:
+            self.assertNotIn('prices/prices.json', archive.namelist())
+            self.assertNotIn('prices/history.json', archive.namelist())
+            for entry in json.loads((Path(_temporary.name)/'bundles'/bundle['name']).with_suffix('.manifest.json').read_text(encoding='utf-8'))['files']:
                 self.assertEqual(hashlib.sha256(archive.read(entry['archivePath'])).hexdigest(), entry['sha256'])
         self.save_prices([price_item(unit_price=130000)], 1)
         project = self.client.get(self.base).json()['project']
@@ -537,19 +537,13 @@ class ReferenceLibraryTests(unittest.TestCase):
         self.save(ident, 2, source={**self.source, 'notes': '共享资料的新备注'})
         pinned = self.client.get('/v1/projects/'+self.project_id).json()['project']['references'][0]
         self.assertEqual(pinned['revision'], 2)
-        bundle = self.post('/v1/projects/'+self.project_id+'/bundle', {})['bundle']
-        archive_bytes = self.client.get('/v1/bundles/'+bundle['name']).content
-        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-            self.assertEqual(json.loads(archive.read('references.json'))[0]['revision'], 2)
-            entries = json.loads(archive.read('manifest.json'))['files']
-            citation = next(entry for entry in entries if entry['name'] == 'citation.json')
-            provenance = json.loads(archive.read(citation['archivePath']))
-            self.assertEqual(provenance['source_sha256'], ident)
-            self.assertEqual(provenance['retrieved_at'], imported['created_at'])
-            self.assertEqual(provenance['acquisitions'][0]['source'], imported['source'])
-            self.assertEqual(provenance['acquisitions'][0]['retrieved_at'], imported['acquisitions'][0]['retrieved_at'])
-            for entry in entries:
-                self.assertEqual(hashlib.sha256(archive.read(entry['archivePath'])).hexdigest(), entry['sha256'])
+        # Reference originals and citation records stay internal, never form a delivery on their own.
+        self.assertEqual(self.client.post('/v1/projects/'+self.project_id+'/bundle', json={}).status_code, 409)
+        citation_file = next(f for f in project['files'] if f['name'] == 'citation.json')
+        from kernel import server
+        provenance = json.loads(server._artifact_path(citation_file['artifactId']).read_text(encoding='utf-8'))
+        self.assertEqual(provenance['source_sha256'], ident)
+        self.assertEqual(provenance['acquisitions'][0]['source'], imported['source'])
         self.client.delete('/v1/projects/'+self.project_id)
         other = self.client.post('/v1/projects', json={'name': '另一个设计项目'}).json()['project']['projectId']
         try:

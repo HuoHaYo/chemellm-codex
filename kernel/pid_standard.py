@@ -21,6 +21,7 @@ import json
 import math
 import re
 from pathlib import Path
+from drawing_style import process_width, equipment_strokes
 
 from pid_sheet import (
     _arrow, _dexpi_subset, _dxf, _pdf, _route, _svg, _table, _text_width,
@@ -350,7 +351,8 @@ def _legend(prims):
     lx, ly, lrx, lry = LEGEND_AREA
     prims.append(("text", lx, ly - 2.0, "图例", 3.0, INK, "start", True))
     items = [
-        ("工艺管线", "process"), ("仪表信号", "signal"), ("联锁", "interlock"),
+        ("主要物料管线", "process"), ("其他物料管线", "secondary"),
+        ("仪表信号", "signal"), ("联锁", "interlock"),
         ("现场仪表", "instrument"), ("盘装仪表", "panel"), ("控制阀", "valve"),
         ("手动阀", "manual"), ("止回阀", "check"), ("安全阀", "relief"),
         ("爆破片", "rupture"), ("盲板", "blind"),
@@ -360,7 +362,9 @@ def _legend(prims):
         sx = lx + 8 + col * 103
         sy = ly + 8 + row * 10.5
         if kind == "process":
-            prims.append(("line", sx - 7, sy, sx + 7, sy, PROCESS, 0.55, None))
+            prims.append(("line", sx - 7, sy, sx + 7, sy, PROCESS, 0.8, None))
+        elif kind == 'secondary':
+            prims.append(("line", sx - 7, sy, sx + 7, sy, PROCESS, 0.4, None))
         elif kind == "signal":
             prims.append(("line", sx - 7, sy, sx + 7, sy, SIGNAL, 0.3, "dash"))
         elif kind == "interlock":
@@ -440,7 +444,7 @@ def _sheet(model):
         x, y = positions[str(node["id"])]
         kind = node.get("kind")
         if kind in EQUIPMENT_KINDS:
-            prims.extend(_equipment(node, x, y))
+            prims.extend(equipment_strokes(_equipment(node, x, y)))
         elif kind in INSTRUMENT_KINDS:
             prims.extend(_instrument(node, x, y))
         elif kind in VALVE_KINDS:
@@ -462,7 +466,7 @@ def _sheet(model):
                          if node_id not in {str(edge.get("source")), str(edge.get("target"))}]
             points = _route_detour(src_anchor, tgt_anchor, obstacles)
             for a, b in zip(points, points[1:]):
-                prims.append(("line", a[0], a[1], b[0], b[1], PROCESS, 0.55, None))
+                prims.append(("line", a[0], a[1], b[0], b[1], PROCESS, process_width(edge), None))
             prims.extend(_arrow(points[-2][0], points[-2][1], points[-1][0], points[-1][1], PROCESS))
             label = _line_label(edge)
             if label:
@@ -559,6 +563,11 @@ def validate_standard(model: dict) -> dict:
     for edge in model.get("edges") or []:
         if (edge.get("kind") or "process") != "process":
             continue
+        try:
+            process_width(edge)
+        except ValueError as exc:
+            validation['blockers'].append(str(exc))
+            validation['passed'] = False
         line = str(edge.get("line_no") or "—")
         if not edge.get("spec"):
             warnings.append(f"{line}：缺少管道规格/管径（spec）")
@@ -577,7 +586,19 @@ def validate_standard(model: dict) -> dict:
             warnings.append(f"{node.get('id')}：仪表缺少量程/规格（range）")
         if node.get("kind") in EQUIPMENT_KINDS and not node.get("material"):
             warnings.append(f"{node.get('id')}：设备缺少材料（material）")
+    if model.get('designer') and model.get('designer') == model.get('checker'):
+        warnings.append('设计与校核填写了同一人员；不能作为已完成独立校核的证据')
+    if not model.get('owner'):
+        warnings.append('缺少业主/竞赛队名称（owner）')
+    process_count = sum((e.get('kind') or 'process') == 'process' for e in model.get('edges') or [])
+    if process_count > 8:
+        warnings.append(f'共 {process_count} 条工艺管线，当前单张模板管线表仅显示前 8 条；正式交付须补续表或拆图')
     return {**validation, "warnings": warnings,
+            'visual_review': {'profile': 'competition_2026_linewidths',
+                'main_process_mm': .8, 'secondary_process_mm': .4, 'equipment_outline_mm': .25,
+                'source': '公开工程图纸质量评审细则第1页，转述 HG/T 20519-2009 表6.1.3',
+                'professional_review': 'not_performed',
+                'pending': ['文字高度与密度', '图标标准原文核对', '交叉连接语义', '控制逻辑', '中文CAD字体原生显示']},
             "standard": "HG/T 20519 内容深度 + ISA-5.1 符号（参照，待核对）"}
 
 

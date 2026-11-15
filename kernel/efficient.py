@@ -119,7 +119,11 @@ def install(k):
                 values = [h for obj in project.get('objects', {}).values() for h in obj.get('selectionHistory', [])]
             elif section in store.COLLECTIONS:
                 value = project.get(section, {} if store.COLLECTIONS[section] == 'map' else [])
-                values = [{'key': a, 'data': b} for a,b in value.items() if key is None or a == key] if isinstance(value, dict) else value
+                if isinstance(value, dict):
+                    values = [{'key': a, 'data': b} for a,b in value.items() if key is None or a == key]
+                else:
+                    identity = {'calculations': 'calculationId', 'files': 'artifactId', 'references': 'use_id'}.get(section, 'key')
+                    values = [row for row in value if key is None or row.get(identity) == key]
             else:
                 raise HTTPException(422, '未知记录类型')
             if offset < 0 or not 1 <= limit <= 100:
@@ -165,6 +169,9 @@ def install(k):
                         raise ValueError('文件复制期间变化或哈希不符：'+relative)
                     manifest.append(dict(relative_path=relative, sha256=digest, bytes=dest.stat().st_size,
                                          deliverable_keys=entry.deliverable_keys, calculation_id=entry.calculation_id))
+                    if entry.delivery_role is not None or entry.depends_on is not None:
+                        manifest[-1].update(delivery_role=entry.delivery_role,
+                            depends_on=sorted({e.relative_path(s) for s in entry.depends_on or []}))
                 fingerprint = json.dumps({'project': project_id, 'generator': p.generator, 'run_id': p.run_id,
                                           'files': sorted(manifest, key=lambda f:f['relative_path']),
                                           'checks': sorted([c.model_dump() for c in p.checks], key=lambda c:(c['name'], c['report_path']))}, sort_keys=True)
@@ -180,12 +187,17 @@ def install(k):
                             raise ValueError('已有固定版本被修改：'+entry['relative_path'])
                         if not target.exists():
                             shutil.copyfile(staged/entry['relative_path'], target)
+                        from app.delivery import file_role
                         metadata = {**entry, 'generator': p.generator, 'run_id': p.run_id, 'external': True}
+                        if not metadata.get('delivery_role'):
+                            metadata['delivery_role'] = ('internal' if any(e.relative_path(c.report_path) == entry['relative_path'] for c in p.checks)
+                                else file_role({**metadata, 'name': target.name, 'kind': target.suffix.lstrip('.')}))
                         db.execute('INSERT OR IGNORE INTO artifacts VALUES(?,?,?,?,?,?,?,?,?)',
                             (aid, project_id, target.name, target.suffix.lstrip('.'), str(target), None, '', json.dumps(metadata), now()))
                         if aid not in known:
                             added.append(dict(artifactId=aid, name=target.name, kind=target.suffix.lstrip('.'),
-                                origin='generated', registration_id=group, **entry,
+                                origin='generated', registration_id=group,
+                                **{**entry, 'delivery_role': metadata['delivery_role'], 'depends_on': entry.get('depends_on', [])},
                                 downloadPath='/v1/artifacts/'+aid+'/download', generator=p.generator, run_id=p.run_id))
                     # State rows are committed separately; retry reconciles any orphan artifact rows.
                 project.setdefault('files', []).extend(added)

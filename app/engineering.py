@@ -231,7 +231,10 @@ def calculation_read(project_id, p):
     if not record:
         raise ValueError('计算记录不属于当前项目或不存在')
     result = json.loads(record['result'])
-    selected = at(result, p.result_path) if p.result_path else result
+    try:
+        selected = at(result, p.result_path) if p.result_path else result
+    except (KeyError, IndexError, ValueError) as exc:
+        raise ValueError('结果字段不存在或 JSON Pointer 无效：'+p.result_path) from exc
     total = None
     if isinstance(selected, list):
         total = len(selected)
@@ -239,13 +242,15 @@ def calculation_read(project_id, p):
     elif isinstance(selected, dict):
         total = len(selected)
         selected = dict(list(selected.items())[p.offset:p.offset+p.limit])
-    if len(encoded(selected)) > 20000:
+    page = {'offset': p.offset, 'total_items': total,
+            'next_offset': p.offset+len(selected) if total is not None and p.offset+len(selected)<total else None}
+    if len(encoded(selected).encode('utf-8')) > 20000:
         return {'source_calculation_id': p.calculation_id, 'tool': record['tool'], 'result_path': p.result_path,
-                'result_sha256': digest(record['result'].encode()), 'total_items': total,
-                'keys': list(selected) if isinstance(selected, dict) else None,
+                'result_sha256': digest(record['result'].encode()), **page,
+                'keys': [key for key in selected if len(key.encode('utf-8')) <= 400][:20] if isinstance(selected, dict) else None,
                 'notice': '所选结果仍过长；用更具体的JSON指针或更小limit读取，完整原值没有被截断替代。'}
     return {'source_calculation_id': p.calculation_id, 'tool': record['tool'], 'result_path': p.result_path,
-            'result_sha256': digest(record['result'].encode()), 'total_items': total, 'offset': p.offset, 'value': selected}
+            'result_sha256': digest(record['result'].encode()), **page, 'value': selected}
 
 
 def _save(db, table, project_id, p, data):

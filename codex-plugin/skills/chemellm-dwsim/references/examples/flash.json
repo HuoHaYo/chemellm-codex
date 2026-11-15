@@ -1,0 +1,57 @@
+{
+  "note": "合成接口示例，不是工厂数据、报价或设计依据。新项目初始化后即可 check/create 试算；正式采用再补齐依据与交付映射。",
+  "engine_baseline": "DWSIM 9.0.5 on Windows",
+  "request": {
+    "action": "create",
+    "model": {
+      "compounds": [
+        "Benzene",
+        "Toluene"
+      ],
+      "property_package": "Raoult's Law",
+      "objects": [
+        {
+          "tag": "F",
+          "type": "MaterialStream",
+          "temperature_k": 410,
+          "pressure_pa": 300000,
+          "mass_flow_kg_s": 1,
+          "mole_fractions": {
+            "Benzene": 0.5,
+            "Toluene": 0.5
+          }
+        },
+        {
+          "tag": "U",
+          "type": "Vessel",
+          "spec": {
+            "mode": "adiabatic"
+          }
+        },
+        {
+          "tag": "P",
+          "type": "MaterialStream"
+        },
+        {
+          "tag": "L",
+          "type": "MaterialStream"
+        }
+      ],
+      "connections": [
+        {
+          "source": "F",
+          "target": "U"
+        },
+        {
+          "source": "U",
+          "target": "P"
+        },
+        {
+          "source": "U",
+          "target": "L",
+          "source_port": 1
+        }
+      ]
+    }
+  }
+}

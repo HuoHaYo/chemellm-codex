@@ -132,17 +132,15 @@ class BlenderTests(unittest.TestCase):
         server.save_project(project)
         bundle = self.client.post(self.base+'/bundle').json()['bundle']
         with zipfile.ZipFile(server.BUNDLES_DIR/bundle['name']) as archive:
-            manifest = json.loads(archive.read('manifest.json'))
+            manifest = json.loads((server.BUNDLES_DIR/bundle['name']).with_suffix('.manifest.json').read_text(encoding='utf-8'))
             entry = manifest['files'][0]
             self.assertNotIn('skipped', entry)
             self.assertEqual(hashlib.sha256(archive.read(entry['archivePath'])).hexdigest(), entry['sha256'])
-        # Independently exercise the 256 MiB boundary without creating a huge fixture.
+        # Oversize final files fail instead of silently delivering an incomplete archive.
         with patch.object(server, 'MAX_BUNDLE_ARTIFACT', 20*1024*1024):
-            skipped = self.client.post(self.base+'/bundle').json()['bundle']
-        with zipfile.ZipFile(server.BUNDLES_DIR/skipped['name']) as archive:
-            entry = json.loads(archive.read('manifest.json'))['files'][0]
-            self.assertEqual(entry['skipped'], 'too_large')
-            self.assertEqual(entry['limitBytes'], 20*1024*1024)
+            skipped = self.client.post(self.base+'/bundle')
+        self.assertEqual(skipped.status_code, 409)
+        self.assertEqual(list(server.BUNDLES_DIR.glob('*.partial')), [])
 
     def test_missing_or_corrupt_outputs_rejected(self):
         folder = STORE/'corrupt-output'
@@ -212,6 +210,58 @@ class BlenderTests(unittest.TestCase):
         bridge._run([str(find_blender()), '--background', '--factory-startup', '--disable-autoexec',
                      '--python-exit-code', '1', '--python', str(script)], folder, 'roundtrip.log', bridge.time.monotonic()+120)
 
+    @unittest.skipUnless(find_blender(), 'Blender not installed')
+    def test_real_continuous_elbows_native_and_glb(self):
+        self.ready()
+        args = {'units': 'm', 'items': [
+            {'id':'PIPE-90', 'label':'PIPE-90', 'kind':'pipe', 'diameter':.3, 'bend_radius':.6,
+             'points':[[0,0,1],[4,0,1],[4,3,1],[4,3,4]], 'position':[1,0,0],
+             'rotation_deg':[0,0,20], 'source':'虚构视觉回归，不是管件设计'},
+            {'id':'PIPE-45', 'label':'PIPE-45', 'kind':'pipe', 'diameter':.3,
+             'points':[[0,-1,1],[3,-1,1],[5,1,1],[7,1,1]],
+             'source':'虚构视觉回归，默认半径仅为展示假设'}],
+            'render':{'width':960,'height':640,'labels':True}}
+        response = self.execute(args)
+        self.assertEqual(response.status_code,200,response.text)
+        report=response.json()['result']['report']
+        self.assertTrue(report['camera_fits_geometry'])
+        for item in report['items']:
+            self.assertEqual(item['pipe_geometry']['bend_count'],2)
+            self.assertTrue(item['pipe_geometry']['closed_manifold'])
+            self.assertFalse(item['pipe_geometry']['radius_is_design_verified'])
+        folder=server._artifact_path(next(a['artifactId'] for a in response.json()['artifacts'] if a['kind']=='blend')).parent
+        self.assertFalse(list(folder.rglob('*.pyc')))
+        self.roundtrip(folder,'PIPE-90')
+        script=folder/'check-pipes.py'
+        script.write_text(
+            'import bpy,bmesh\nfrom pathlib import Path\n'
+            f'folder=Path({str(folder)!r})\n'
+            'for native in (True,False):\n'
+            ' bpy.ops.object.select_all(action="SELECT"); bpy.ops.object.delete(use_global=False)\n'
+            ' if native: bpy.ops.wm.open_mainfile(filepath=str(folder/"scene.blend"))\n'
+            ' else: bpy.ops.import_scene.gltf(filepath=str(folder/"scene.glb"))\n'
+            ' for key in ("PIPE-90","PIPE-45"):\n'
+            '  objects=[o for o in bpy.data.objects if o.type=="MESH" and o.get("chemellm_id")==key and not o.get("is_label")]\n'
+            '  assert len(objects)==1,(key,len(objects))\n'
+            '  bm=bmesh.new(); bm.from_mesh(objects[0].data)\n'
+            '  bmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=1e-5)\n'
+            '  assert all(e.is_manifold for e in bm.edges),key\n'
+            '  seen=set(); pending=[next(iter(bm.verts))]\n'
+            '  while pending:\n'
+            '   v=pending.pop()\n'
+            '   if v in seen: continue\n'
+            '   seen.add(v);pending.extend(e.other_vert(v) for e in v.link_edges if e.other_vert(v) not in seen)\n'
+            '  assert len(seen)==len(bm.verts),key\n'
+            '  assert all(f.calc_area()>1e-12 for f in bm.faces),key\n'
+            '  bm.free()\n',encoding='utf-8')
+        bridge._run([str(find_blender()),'--background','--factory-startup','--disable-autoexec',
+                     '--python-exit-code','1','--python',str(script)],folder,'pipes.log',bridge.time.monotonic()+120)
+        import shutil
+        out=ROOT/'output/visual-standards'
+        out.mkdir(parents=True,exist_ok=True)
+        for name in ('preview.png','scene.glb','report.json'):
+            shutil.copyfile(folder/name,out/name)
+
     @unittest.skipUnless(find_blender() and find_freecad(), 'Blender and FreeCAD required')
     def test_real_full_plant_mixed_cad(self):
         self.ready()
@@ -246,18 +296,15 @@ class BlenderTests(unittest.TestCase):
         self.roundtrip(folder, 'CAD-0')
         archive_path = self.client.post(self.base+'/bundle').json()['bundle']['name']
         with zipfile.ZipFile(server.BUNDLES_DIR/archive_path) as archive:
-            manifest = json.loads(archive.read('manifest.json'))
+            manifest = json.loads((server.BUNDLES_DIR/archive_path).with_suffix('.manifest.json').read_text(encoding='utf-8'))
             for entry in manifest['files']:
                 self.assertEqual(bridge.hashlib.sha256(archive.read(entry['archivePath'])).hexdigest(), entry['sha256'])
-            self.assertTrue(any('/sources/' in n for n in archive.namelist()))
-            relocated = STORE/'解包复现 relocated'
+            self.assertFalse(any('/sources/' in n or n.endswith(('.py', '.log', '.json')) for n in archive.namelist()))
+            relocated = STORE/'解包打开 relocated'
             archive.extractall(relocated)
         portable = next((relocated/'scenes').iterdir())
-        bridge._run([str(find_blender()), '--background', '--factory-startup', '--disable-autoexec',
-                     '--python-exit-code', '1', '--python', str(portable/'blender_worker.py'),
-                     '--', str(portable/'scene-input.json')], portable, 'replay.log', bridge.time.monotonic()+120)
-        replay = bridge.check_outputs(portable, BlenderInput.model_validate(args))
-        self.assertEqual(replay['items'], report['items'])
+        # Final native model opens independently; reproduction sources stay in internal storage.
+        self.roundtrip(portable, 'CAD-0')
         # Preserve this explicitly fictional QA scene outside temporary project data for visual review.
         out = ROOT/'output/blender-qa'
         out.mkdir(parents=True, exist_ok=True)

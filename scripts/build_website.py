@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import json
 from pathlib import Path
 import tarfile
 import time
@@ -12,8 +13,33 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 INSTALLER = f"ChemELLM-Codex-{VERSION}-windows-x64.zip"
-PUBLIC_FILES = ("index.html", "styles.css", "app.js", "favicon.svg", "robots.txt", "sitemap.xml")
+PUBLIC_FILES = ("index.html", "styles.css", "app.js", "favicon.svg", "robots.txt", "sitemap.xml",
+                "showcase.css", "showcase.js", "model-viewer.js", "pfd-viewer.js",
+                "showcase/fr2023/index.html", "showcase/fr2023/pfd.html", "showcase/tianzheng/index.html",
+                "showcase/assets.json")
 DEPLOY_FILES = ("nginx.conf", "publish.sh", "chemellm-site-renew.service", "chemellm-site-renew.timer")
+
+
+def public_files() -> dict[str, bytes]:
+    """An explicit asset manifest prevents accidental publication of project folders."""
+    site = ROOT / 'site'
+    public = {name: (site / name).read_bytes() for name in PUBLIC_FILES}
+    manifest = json.loads(public['showcase/assets.json'])
+    if manifest.get('schema_version') != 1:
+        raise ValueError('Unsupported showcase manifest')
+    for asset in manifest['assets']:
+        name = asset['path']
+        path = site / name
+        if (not name.startswith('showcase/') or '\\' in name or '..' in Path(name).parts
+                or path.is_symlink() or not path.resolve().is_relative_to(site.resolve())):
+            raise ValueError('Invalid public asset path: ' + name)
+        if name in public:
+            raise ValueError('Duplicate public asset: ' + name)
+        data = path.read_bytes()
+        if len(data) != asset['bytes'] or hashlib.sha256(data).hexdigest() != asset['sha256']:
+            raise ValueError('Public asset changed; review and prepare again: ' + name)
+        public[name] = data
+    return public
 
 
 def main() -> None:
@@ -33,7 +59,7 @@ def main() -> None:
     installer = args.installer.read_bytes()
     if hashlib.sha256(installer).hexdigest() != installer_sha256:
         raise SystemExit("Installer does not match Release SHA256SUMS.txt")
-    public = {name: (ROOT / "site" / name).read_bytes() for name in PUBLIC_FILES}
+    public = public_files()
     if INSTALLER.encode() not in public["index.html"] or f"v{VERSION}".encode() not in public["index.html"]:
         raise SystemExit("Website version and installer links must match the package")
     public[f"downloads/{INSTALLER}"] = installer

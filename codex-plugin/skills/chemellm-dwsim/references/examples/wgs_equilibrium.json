@@ -1,0 +1,87 @@
+{
+  "note": "合成接口示例，不是工厂数据、报价或设计依据。新项目初始化后即可 check/create 试算；正式采用再补齐依据与交付映射。",
+  "engine_baseline": "DWSIM 9.0.5 on Windows",
+  "request": {
+    "action": "create",
+    "model": {
+      "compounds": [
+        "Carbon monoxide",
+        "Water",
+        "Carbon dioxide",
+        "Hydrogen"
+      ],
+      "property_package": "Peng-Robinson (PR)",
+      "objects": [
+        {
+          "tag": "F",
+          "type": "MaterialStream",
+          "temperature_k": 1000,
+          "pressure_pa": 300000,
+          "mass_flow_kg_s": 1,
+          "mole_fractions": {
+            "Carbon monoxide": 0.25,
+            "Water": 0.25,
+            "Carbon dioxide": 0.25,
+            "Hydrogen": 0.25
+          }
+        },
+        {
+          "tag": "U",
+          "type": "RCT_Equilibrium",
+          "spec": {
+            "mode": "reaction",
+            "reaction_set": "wgs",
+            "reactor_mode": "Isothermic"
+          }
+        },
+        {
+          "tag": "P",
+          "type": "MaterialStream"
+        },
+        {
+          "tag": "L",
+          "type": "MaterialStream"
+        }
+      ],
+      "connections": [
+        {
+          "source": "F",
+          "target": "U"
+        },
+        {
+          "source": "U",
+          "target": "P"
+        },
+        {
+          "source": "U",
+          "target": "L",
+          "source_port": 1
+        }
+      ],
+      "reactions": [
+        {
+          "key": "shift",
+          "type": "Equilibrium",
+          "stoichiometry": {
+            "Carbon monoxide": -1,
+            "Water": -1,
+            "Carbon dioxide": 1,
+            "Hydrogen": 1
+          },
+          "base_compound": "Carbon monoxide",
+          "phase": "Vapor",
+          "source": "Synthetic interface benchmark; not plant data",
+          "conditions": "1000 K, 300000 Pa; independent WGS reference uses NIST ideal-gas thermochemistry"
+        }
+      ],
+      "reaction_sets": [
+        {
+          "key": "wgs",
+          "reactions": [
+            "shift"
+          ]
+        }
+      ]
+    }
+  }
+}

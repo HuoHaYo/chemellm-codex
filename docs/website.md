@@ -1,12 +1,22 @@
 # 产品官网维护
 
-官网为 <https://chemellm.online/>，`http` 与 `www` 跳转到该 HTTPS 主域名。网站只发布产品介绍、安装指引和公开发行包，不连接工程内核或项目数据。
+官网为 <https://chemellm.online/>，`http` 与 `www` 跳转到该 HTTPS 主域名。网站发布产品介绍、安装指引、公开发行包及精选成果展示，不连接工程内核或本地项目存储。
 
 ## 源文件与构建
 
 - `site/`：中文响应式页面、CSS、JavaScript、SVG 图标与搜索索引入口，无外部字体、CDN 或统计脚本。
 - `deploy/website/`：Nginx、发布脚本和证书续期 systemd 单元。
 - `scripts/build_website.py`：只打包明确列出的公开文件及经 Release 校验清单验证的 Windows 安装 ZIP，输出 `output/deployment/website.tar.gz`。
+
+## 成果展示
+
+首页“成果展示”链接到 [FR2023](https://chemellm.online/showcase/fr2023/) 和 [2026 天正杯](https://chemellm.online/showcase/tianzheng/)。FR2023 提供十个工艺分区、位号/物流搜索、缩放和阶段报告；天正杯提供按需加载的 GLB、对象选择、图纸放大与五份 PDF。Three.js r170 与 MIT 许可随站点提供，无第三方 CDN 请求。
+
+`scripts/prepare_showcase.py` 用显式路径参数读取用户授权的两个工程，只导出固定的公开素材清单。图片转为无原始元数据的 WebP；PDF 重写页面并去除附加动作、批注及个人文档属性；GLB 移除 extras，必须自包含；SVG 使用系统字体，不包含机器字体或内联样式。原始工程、数据库、题目、参考原件、日志和内部评审不进入站点。
+
+`site/showcase/assets.json` 记录每项素材的公开路径、字节数、SHA256 与源文件指纹。构建脚本校验清单，拒绝越界、重复路径和内容变更；不递归收集本地工程目录。素材变更后需重新审阅、生成清单并运行 `python -X utf8 scripts/test_website.py`，再用浏览器检查页面、PFD 与三维交互。生产 CSP 仅允许本站脚本和样式。
+
+FR2023 为阶段连接研究，完整全厂覆盖和严格常减压等仍待验收；天正杯为初步设计练习，全流程使用 Python 方程模型，DWSIM 仅交叉检查反应段。页面保留模型假设、独立评审发现和经济评价边界，不宣称正式参赛、获奖或通过专业签审。公开文件保持原版本，不随插件代码修复而标记为已完成整改。
 
 ## 视觉与产品内容
 

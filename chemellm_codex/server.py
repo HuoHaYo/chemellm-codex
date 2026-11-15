@@ -134,16 +134,12 @@ def create_server() -> FastMCP:
 
     server = FastMCP(
         "chemellm",
-        instructions=("化工计算和工程成果使用本地项目、真实工具结果及可追溯依据。"
-                      "先读项目和工具参数；数值保留单位、条件、来源。"
-                      "新任务用 chem_project_init 一次初始化，可直接试算；工具自动保留真实输入、结果、校核和文件。"
-                      "设计数值用 chem_basis_select；同来源用 source_groups 和数值简写，AI只补关键决策与例外。用户数据优先、适用资料/推算其次、假设兜底；保留假设传递。"
-                      "缺少数据时主动检索、计算或作有依据的假设继续全部约定设计，不因缺数放弃设计项、删减设备或降低约定模型深度；假设和验证状态如实报告。"
-                      "收到真实价格后用 chem_price_save 持久化；先 chem_prices 读取版本。缺价估值须标为 assumption 并说明依据，不得覆盖真实价格。"
-                      "每次新增或更新价格填写本次 source，并在 notes 备注题设假定、工厂报价或 AI 暂估及适用背景；引用时结合备注判断。"
-                      "资料保存原件、读取相关部分后固定引用；图像可直接按页引用，整理稿按复用需要生成。外部成果用 chem_artifacts_register 批量登记。"
-                      "缺少当前任务需要的不随包工具时先 chem_dependency_prepare，说明用途、安装理由与方案，向真实用户询问是否安装；仅在用户明确同意后 chem_dependency_install，完成验证后继续原任务。用户拒绝或未回复时不得安装。"
-                      "自动校核不能替代专业审核。失败后先核对项目状态再重试。"),
+        instructions=("使用本地项目、真实工具结果和可追溯依据。新任务 chem_project_init，已有任务读项目摘要。"
+                      "已知工具用 chem_tools(tool=...)，发现用途用 view=summary；计算用摘要或 selected 字段读取，完整结果按需展开。"
+                      "工具自动保存实际请求、版本、结果和成果；AI补关键决策。单位、条件、来源及假设传递必须保留，用户数据优先。"
+                      "缺数时检索、推算或明确假设，继续约定范围和模型深度。专业操作按相应技能读取。"
+                      "外部成果批量登记，按需求打包；自动校核不代替专业审核。失败先读状态再修正。"
+                      "缺少软件先准备方案；仅有真实用户明确安装授权后执行安装，沿用已有授权。"),
         lifespan=lifespan,
         log_level="WARNING",
     )
@@ -192,13 +188,13 @@ def create_server() -> FastMCP:
         return await bridge.request('GET', project_path(project_id)+'/records?'+urlencode(query))
 
     @server.tool(annotations=read)
-    async def chem_dependencies(dependency: Literal['dwsim', 'freecad', 'libreoffice', 'cantera', 'blender'] | None = None) -> dict:
+    async def chem_dependencies(dependency: Literal['dwsim', 'freecad', 'libreoffice', 'cantera', 'blender', 'qelectrotech'] | None = None) -> dict:
         """检测不随包的工程工具，省略 dependency 列出全部；只检测，不自动安装或向用户提问。"""
         path = '/v1/dependencies'+('?dependency='+dependency if dependency else '')
         return await bridge.request('GET', path)
 
     @server.tool(annotations=write)
-    async def chem_dependency_prepare(dependency: Literal['dwsim', 'freecad', 'libreoffice', 'cantera', 'blender'], reason: str) -> dict:
+    async def chem_dependency_prepare(dependency: Literal['dwsim', 'freecad', 'libreoffice', 'cantera', 'blender', 'qelectrotech'], reason: str) -> dict:
         """为当前任务缺少的工具生成安装方案、来源、目标和提问文案；本工具不安装。
 
         reason 说明具体任务为什么需要它。向真实用户展示方案并询问“是否安装？是/否”，收到回复前不可调用安装。
@@ -320,7 +316,7 @@ def create_server() -> FastMCP:
                                  images: list[ImageCitation] | None = None) -> dict:
         """把原文/逐字转录的固定版本复制到项目，返回可供 evidence_add 使用的 snapshot_id/block_id。
 
-        项目副本不随共享库更新，原件、来源和整理稿随项目打包；删除项目不会删除共享库。
+        项目副本不随共享库更新；原件、来源和整理稿保留项目内部，不自动加入最终交付包。删除项目不会删除共享库。
         """
         return await bridge.request('POST', project_path(project_id)+'/references', {
             'reference_id': reference_id, 'revision': revision, 'block_ids': block_ids or [],
@@ -332,20 +328,14 @@ def create_server() -> FastMCP:
         return await bridge.request("GET", "/v1/health")
 
     @server.tool(annotations=read)
-    async def chem_tools(tool: str | None = None) -> dict:
-        """列出可执行工具及 JSON 参数 schema；指定 tool 可只查一个工具。"""
-        catalog = await bridge.request("GET", "/v1/tools")
-        if tool is None:
-            return catalog
-        if tool not in catalog["executable"]:
-            raise ToolError("未知或不可执行的工具：" + tool)
-        return {
-            "tool": tool,
-            "schema": catalog["schemas"].get(tool),
-            "description": next((item for item in catalog["tools"] if item["id"] == tool), None),
-            "specialTool": tool in kernel.SPECIAL_TOOLS,
-            "note": "specialTool 无 schema 时请查阅对应 kernel 模块；不要猜测必需参数。",
-        }
+    async def chem_tools(tool: str | None = None, view: Literal['full', 'summary'] | None = None,
+                         category: Literal['engineering', 'dwsim', '3d', 'references', 'costing'] | None = None,
+                         offset: Annotated[int, Field(ge=0)] = 0,
+                         limit: Annotated[int, Field(ge=1, le=100)] = 20) -> dict:
+        """已知 tool 直接读取参数；未知用途用 view=summary 分页发现，不载入全部 schema。省略新参数兼容原完整目录。"""
+        from urllib.parse import urlencode
+        query = {k: v for k, v in dict(tool=tool, view=view, category=category, offset=offset, limit=limit).items() if v is not None}
+        return await bridge.request('GET', '/v1/tools?'+urlencode(query))
 
     @server.tool(annotations=read)
     async def chem_projects() -> dict:
@@ -442,12 +432,17 @@ def create_server() -> FastMCP:
                                      'basis_keys':basis_keys or []})
 
     @server.tool(annotations=read)
-    async def chem_calculations(project_id: str, calculation_id: str | None = None) -> dict:
-        """列出计算记录，或按 calculation_id 读取完整输入/结果，避免使用截断数值。"""
+    async def chem_calculations(project_id: str, calculation_id: str | None = None,
+                                view: Literal['full', 'summary', 'selected'] | None = None,
+                                result_path: str = '', offset: Annotated[int, Field(ge=0)] = 0,
+                                limit: Annotated[int, Field(ge=1, le=100)] = 20) -> dict:
+        """view=summary 分页计算目录；selected 配合计算 ID 和 JSON Pointer 读取结果字段。旧调用/full 保留完整输入结果。"""
+        from urllib.parse import urlencode
         path = project_path(project_id) + "/calculations"
         if calculation_id is not None:
             path += "/" + segment(calculation_id)
-        return await bridge.request("GET", path)
+        query = {k: v for k, v in dict(view=view, result_path=result_path, offset=offset, limit=limit).items() if v is not None}
+        return await bridge.request("GET", path+'?'+urlencode(query))
 
     @server.tool(annotations=write)
     async def chem_intake(project_id: str, path: str, name: str | None = None) -> dict:
@@ -477,9 +472,9 @@ def create_server() -> FastMCP:
         return await bridge.request("POST", project_path(project_id) + "/review", {"note": note})
 
     @server.tool(annotations=write)
-    async def chem_bundle(project_id: str) -> dict:
-        """打包工程记录和成果原件，返回本地 ZIP 路径与 SHA256；保留实际审核状态。"""
-        return await bridge.request("POST", project_path(project_id) + "/bundle", {})
+    async def chem_bundle(project_id: str, artifact_ids: list[str] | None = None) -> dict:
+        """仅在用户需要压缩包或多文件整体交付时调用。打包最终成果与必要资源，不含内部过程记录；可指定最终成果 ID。返回 ZIP 路径与 SHA256，完成任务无需调用此工具。"""
+        return await bridge.request("POST", project_path(project_id) + "/bundle", {"artifact_ids": artifact_ids})
 
     @server.resource("chemellm://projects/{project_id}", mime_type="application/json")
     async def project_resource(project_id: str) -> str:

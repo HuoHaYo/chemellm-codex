@@ -113,7 +113,7 @@ try {
                          '--no-build-isolation', '--editable', $root)
     Invoke-Checked $python @('-X', 'utf8', (Join-Path $root 'scripts\configure-codex.py'))
     Write-Host '[5/6] Checking real MCP startup and tool discovery...'
-    Invoke-Checked $python @('-X', 'utf8', (Join-Path $root 'scripts\check-installation.py'))
+    Invoke-Checked $python @('-X', 'utf8', (Join-Path $root 'scripts\check-installation.py'), '--source-only')
 
     if (-not $SkipRegistration) {
         Write-Host '[6/6] Registering the plugin in Codex...'
@@ -134,6 +134,7 @@ try {
         }
         Invoke-Checked $codex @('plugin', 'marketplace', 'add', $root, '--json')
         Invoke-Checked $codex @('plugin', 'add', 'chemellm@chemellm-local', '--json')
+        Invoke-Checked $python @('-X', 'utf8', (Join-Path $root 'scripts\check-installation.py'))
     }
     Write-Host "`nInstalled successfully. Restart Codex and open a new chat."
     Write-Host "Keep this folder in place. Your data is stored under: $(Join-Path $root 'data')"

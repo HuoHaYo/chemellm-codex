@@ -1,0 +1,78 @@
+{
+  "note": "合成接口示例，不是工厂数据、报价或设计依据。新项目初始化后即可 check/create 试算；正式采用再补齐依据与交付映射。",
+  "engine_baseline": "DWSIM 9.0.5 on Windows",
+  "request": {
+    "action": "create",
+    "model": {
+      "compounds": [
+        "Benzene",
+        "Toluene"
+      ],
+      "property_package": "Raoult's Law",
+      "objects": [
+        {
+          "tag": "F",
+          "type": "MaterialStream",
+          "temperature_k": 365,
+          "pressure_pa": 300000,
+          "mass_flow_kg_s": 1,
+          "mole_fractions": {
+            "Benzene": 0.5,
+            "Toluene": 0.5
+          }
+        },
+        {
+          "tag": "U",
+          "type": "DistillationColumn",
+          "spec": {
+            "mode": "column",
+            "column": {
+              "stages": 12,
+              "top_pressure_pa": 101325,
+              "bottom_pressure_pa": 110000,
+              "feed_stages": {
+                "F": 6
+              },
+              "distillate_stream": "P",
+              "bottoms_stream": "B",
+              "condenser_spec": {
+                "type": "Stream_Ratio",
+                "value": 3,
+                "unit": ""
+              },
+              "reboiler_spec": {
+                "type": "Product_Molar_Flow_Rate",
+                "value": 5.87,
+                "unit": "mol/s"
+              }
+            }
+          }
+        },
+        {
+          "tag": "P",
+          "type": "MaterialStream"
+        },
+        {
+          "tag": "B",
+          "type": "MaterialStream"
+        }
+      ],
+      "connections": [
+        {
+          "source": "F",
+          "target": "U"
+        },
+        {
+          "source": "U",
+          "target": "P",
+          "source_port": 0
+        },
+        {
+          "source": "U",
+          "target": "B",
+          "source_port": 1
+        }
+      ]
+    }
+  }
+}

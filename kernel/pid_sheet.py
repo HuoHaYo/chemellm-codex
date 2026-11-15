@@ -650,31 +650,33 @@ def _dxf(W: float, H: float, prims: list[tuple], path: Path) -> None:
     import ezdxf
     from ezdxf.enums import TextEntityAlignment
 
-    doc = ezdxf.new("R2010")
+    from drawing_style import configure_dxf, line_attributes
+    doc = ezdxf.new("R2004")
     doc.header["$INSUNITS"] = 4  # mm
     msp = doc.modelspace()
     for layer, color in (("FRAME", 7), ("EQUIPMENT", 5), ("PROCESS", 7), ("SIGNAL", 3), ("INTERLOCK", 1), ("TEXT", 7), ("TABLE", 8)):
         if layer not in doc.layers:
             doc.layers.add(layer, color=color)
+    configure_dxf(doc)
     for primitive in prims:
         kind = primitive[0]
         if kind == "line":
             _, x1, y1, x2, y2, color, width, dash = primitive
             layer = "SIGNAL" if color == PALETTE["signal"] else ("INTERLOCK" if color == PALETTE["interlock"] else ("PROCESS" if color == PALETTE["process"] else "FRAME"))
-            msp.add_line((x1, H - y1), (x2, H - y2), dxfattribs={"layer": layer})
+            msp.add_line((x1, H - y1), (x2, H - y2), dxfattribs=line_attributes(layer, width, dash))
         elif kind == "rect":
             _, x, y, w, h, fill, stroke, width, radius = primitive
             layer = "FRAME" if stroke == PALETTE["frame"] else ("TABLE" if stroke == PALETTE["grid"] else "EQUIPMENT")
-            msp.add_lwpolyline([(x, H - y), (x + w, H - y), (x + w, H - y - h), (x, H - y - h)], close=True, dxfattribs={"layer": layer})
+            msp.add_lwpolyline([(x, H - y), (x + w, H - y), (x + w, H - y - h), (x, H - y - h)], close=True, dxfattribs=line_attributes(layer, width, None))
         elif kind == "circle":
             _, cx, cy, radius, fill, stroke, width = primitive
-            msp.add_circle((cx, H - cy), radius, dxfattribs={"layer": "EQUIPMENT"})
+            msp.add_circle((cx, H - cy), radius, dxfattribs=line_attributes('EQUIPMENT', width, None))
         elif kind == "ellipse":
             _, cx, cy, rx, ry, fill, stroke, width = primitive
-            msp.add_ellipse((cx, H - cy), major_axis=(rx, 0), ratio=(ry / rx if rx else 1.0), dxfattribs={"layer": "EQUIPMENT"})
+            msp.add_ellipse((cx, H - cy), major_axis=(rx, 0), ratio=(ry / rx if rx else 1.0), dxfattribs=line_attributes('EQUIPMENT', width, None))
         elif kind == "polygon":
             _, points, fill, stroke, width = primitive
-            msp.add_lwpolyline([(px, H - py) for px, py in points], close=True, dxfattribs={"layer": "EQUIPMENT"})
+            msp.add_lwpolyline([(px, H - py) for px, py in points], close=True, dxfattribs=line_attributes('EQUIPMENT', width, None))
         elif kind == "text":
             _, x, y, text, size, color, anchor, bold = primitive
             entity = msp.add_text(str(text), dxfattribs={"height": max(size, 1.0), "layer": "TEXT"})

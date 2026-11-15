@@ -39,9 +39,11 @@ def main() -> None:
     parser.add_argument('--allowed-root', type=Path, action='append', default=[],
                         help='Allow task files below this root; repeat for multiple roots. Does not change storage.')
     parser.add_argument('--skill-fingerprint', help='Expected skill SHA256 recorded when configuring this plugin package')
+    parser.add_argument('--skill-set-fingerprint', help='Expected SHA256 of the complete skills tree at configuration time')
     options = parser.parse_args()
     configure(options.workspace, options.data_root, options.allowed_root)
     os.environ['CHEMELLM_SKILL_FINGERPRINT'] = options.skill_fingerprint or ''
+    os.environ['CHEMELLM_SKILL_SET_FINGERPRINT'] = options.skill_set_fingerprint or ''
     # Scientific libraries may print at import time; stdout belongs to MCP only.
     with redirect_stdout(sys.stderr):
         from chemellm_codex.server import create_server

@@ -1,0 +1,179 @@
+{
+  "checked_on": "2026-11-15",
+  "sources": [
+    {
+      "id": "contest-2026",
+      "title": "中国化工学会：第二十届全国大学生化工设计竞赛圆满落幕",
+      "url": "https://www.ciesc.cn/site/content/4906.html",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "a042daf5d44de6c16ed330362087cac11dd39e30354aceca0d44977183d0c9e0",
+      "read_level": "page_read",
+      "locator": "正文设计题目、评审环节及获奖情况",
+      "use": "确认苯乙烯清洁生产赛题；不是完整作品图集"
+    },
+    {
+      "id": "review-notice",
+      "title": "宁夏大学新华学院：2026年竞赛选拔赛通知及附件",
+      "url": "https://www.nxxhxy.com/gcyyykxx/content?id=6003234",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "b1b0da950aee4974ae557b44e4cc354b23f326a7a5749226c8d717751ab40585",
+      "read_level": "page_read",
+      "locator": "附件列表；通知正文有2025/2026日期混用",
+      "use": "公开评审附件的发布链；不直接用通知混用日期推断全国截止日期"
+    },
+    {
+      "id": "drawing-review",
+      "title": "工程图纸质量评分实施细则",
+      "url": "https://www.nxxhxy.com/static/upload/18f8a712-2fdd-4804-b630-d49d52618aa7.pdf",
+      "accessed": "2026-11-15",
+      "sha256": "f5dd6587e63ed9d5546352d59990bc86ce1c3f80a9f78ff87942b8959c8e842a",
+      "read_level": "full_pdf_text_read",
+      "locator": "第1—2页格式、线宽字高；第3—5页内容与一致性",
+      "use": "高校公开的2026附件；不冒充标准全文或主办方更新确认"
+    },
+    {
+      "id": "methods-review",
+      "title": "现代设计方法评分实施细则",
+      "url": "https://www.nxxhxy.com/static/upload/40f26aaf-093c-4e20-9e68-0fbdc7abc507.pdf",
+      "accessed": "2026-11-15",
+      "sha256": "d84b963529c747692e4bc16d9a17eb00f14402b590fe923749803f50468362c7",
+      "read_level": "full_pdf_text_read",
+      "locator": "第3—5页模型依据；第8页三维数据库驱动软件与平立面",
+      "use": "高校公开的2026附件；不冒充标准全文或主办方更新确认"
+    },
+    {
+      "id": "document-review",
+      "title": "设计文档质量评分实施细则",
+      "url": "https://www.nxxhxy.com/static/upload/af367083-2f10-40f0-b3a1-38de21d337c9.pdf",
+      "accessed": "2026-11-15",
+      "sha256": "321de99119e48a794413566eff3de823dca4dc447726cd4c905213135a606480",
+      "read_level": "full_pdf_text_read",
+      "locator": "第3—4页专业章节、控制与总图；第5—6页设备设计",
+      "use": "高校公开的2026附件；不冒充标准全文或主办方更新确认"
+    },
+    {
+      "id": "work-hnie",
+      "title": "湖南工程学院：7万吨/年1,3-丙二醇项目",
+      "url": "https://hgy.hnie.edu.cn/info/1001/5942.htm",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "3b35fa1325647fce2e0d6847571c9dd6415cb9c7c6565e1a5b095206d6735e59",
+      "read_level": "project_introduction_read",
+      "locator": "2024获奖介绍，明确使用Plant 3D",
+      "use": "表达范围参考；未获得完整原生模型/图集，不评价具体图纸合规"
+    },
+    {
+      "id": "work-lz",
+      "title": "兰州石化职业技术大学：6万吨/年己二腈项目",
+      "url": "https://www.lzpuvt.edu.cn/2023/0830/c389a9811/page.htm",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "c93dfccce9adc788d0fcb170d452e2ff5a0d138c1fcbaeca7010408d38782735",
+      "read_level": "project_introduction_read",
+      "locator": "2023获奖介绍，列出工艺/自控/布置设计范围",
+      "use": "表达范围参考；未获得完整原生模型/图集，不评价具体图纸合规"
+    },
+    {
+      "id": "work-hbu",
+      "title": "河北大学：6000吨/年二甲基亚砜项目",
+      "url": "https://ecoen.hbu.edu.cn/xytz/18007.jhtml",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "2a2d41d8b755014d3ac9268182110809c7f3c2b62f855b7f84b6cae80f2b642c",
+      "read_level": "project_introduction_read",
+      "locator": "2025获奖介绍，提到三维多维度展示",
+      "use": "表达范围参考；未获得完整原生模型/图集，不评价具体图纸合规"
+    },
+    {
+      "id": "gb-detail",
+      "title": "GB/T 14689-2008 技术制图 图纸幅面和格式",
+      "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=6C3BD0FCD8FFFE7CEC6404FB0180EA96",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "7c88783ce007da12c05519db84accf0b8ea7d1cfbd8a5c10de085fd6a5f59d15",
+      "read_level": "official_metadata_only",
+      "locator": "官方目录显示现行；状态仅代表查询日",
+      "use": "核对标准身份、状态和适用主题；未核对全文条款"
+    },
+    {
+      "id": "gb-14690",
+      "title": "GB/T 14690-1993 技术制图 比例",
+      "url": "https://openstd.samr.gov.cn/bzgk/std/std_list?p.p1=0&p.p2=14690",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "406eebb652503125579df3e4d6dbce17435c85948b65a0a447c89e37b7fd5807",
+      "read_level": "official_metadata_only",
+      "locator": "官方目录显示现行；状态仅代表查询日",
+      "use": "核对标准身份、状态和适用主题；未核对全文条款"
+    },
+    {
+      "id": "gb-14691",
+      "title": "GB/T 14691-1993 技术制图 字体",
+      "url": "https://openstd.samr.gov.cn/bzgk/std/std_list?p.p1=0&p.p2=14691",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "fd05a9f6eba5484425e489a88ef3e65a993e7002b3dfb6f69ebbb1e3557c7ce1",
+      "read_level": "official_metadata_only",
+      "locator": "官方目录显示现行；状态仅代表查询日",
+      "use": "核对标准身份、状态和适用主题；未核对全文条款"
+    },
+    {
+      "id": "gb-4457.4",
+      "title": "GB/T 4457.4-2002 机械制图 图样画法 图线",
+      "url": "https://openstd.samr.gov.cn/bzgk/std/std_list?p.p1=0&p.p2=4457.4",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "4ad062d14aa26cd4e419caa016930caa391988ae34a8c376ea67983a40860dce",
+      "read_level": "official_metadata_only",
+      "locator": "官方目录显示现行；状态仅代表查询日",
+      "use": "核对标准身份、状态和适用主题；未核对全文条款"
+    },
+    {
+      "id": "gb-6567.2",
+      "title": "GB/T 6567.2-2008 技术制图 管路系统的图形符号 管路",
+      "url": "https://openstd.samr.gov.cn/bzgk/std/std_list?p.p1=0&p.p2=6567.2",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "5f44ee35495864410d02757bc72740c696e42ea8b90548fc0e7d2093c49ef710",
+      "read_level": "official_metadata_only",
+      "locator": "官方目录显示现行；状态仅代表查询日",
+      "use": "核对标准身份、状态和适用主题；未核对全文条款"
+    },
+    {
+      "id": "gb-10609.1",
+      "title": "GB/T 10609.1-2008 技术制图 标题栏",
+      "url": "https://openstd.samr.gov.cn/bzgk/std/std_list?p.p1=0&p.p2=10609.1",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "bd9ebb51cf66dad65a8fd7bb2e3c208078a9921211727a00e5faa0d9c0fde056",
+      "read_level": "official_metadata_only",
+      "locator": "官方目录显示现行；状态仅代表查询日",
+      "use": "核对标准身份、状态和适用主题；未核对全文条款"
+    },
+    {
+      "id": "blender-body",
+      "title": "Blender 4.1 Manual: Curve Geometry",
+      "url": "https://docs.blender.org/manual/en/4.1/modeling/curves/properties/geometry.html",
+      "accessed": "2026-11-15",
+      "http_status": 200,
+      "sha256": "9b571d5852c42256eea70c24833314823b92ef7e661035f84f9201db7b377515",
+      "read_level": "documentation_read",
+      "locator": "Bevel / Depth / Resolution / Fill Caps",
+      "use": "连续扫掠与端盖技术参考；实现采用固定圆弧网格，不是管件标准"
+    },
+    {
+      "id": "pending-process",
+      "title": "HG/T 20519-2009 / HG/T 20505 / HG/T 20688 等行业规定",
+      "read_level": "pending",
+      "use": "20519部分要求已在评审附件转引处读取；行业标准全文、20505版本及现行状态尚需正式核对"
+    },
+    {
+      "id": "pending-international",
+      "title": "ISO 10628 / ISA-5.1",
+      "read_level": "pending",
+      "use": "ISO官网访问403，ISA候选页面404；不得据此宣称最新版本或逐符号符合"
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "note": "合成接口示例，不是工厂数据、报价或设计依据。新项目初始化后即可 check/create 试算；正式采用再补齐依据与交付映射。",
+  "engine_baseline": "DWSIM 9.0.5 on Windows",
+  "request": {
+    "action": "create",
+    "model": {
+      "compounds": [
+        "Water"
+      ],
+      "property_package": "Steam Tables (IAPWS-IF97)",
+      "objects": [
+        {
+          "tag": "COLD",
+          "type": "MaterialStream",
+          "x": 50,
+          "y": 50,
+          "temperature_k": 300,
+          "pressure_pa": 200000,
+          "mass_flow_kg_s": 2,
+          "mole_fractions": {
+            "Water": 1
+          }
+        },
+        {
+          "tag": "HOT",
+          "type": "MaterialStream",
+          "x": 50,
+          "y": 160,
+          "temperature_k": 350,
+          "pressure_pa": 200000,
+          "mass_flow_kg_s": 1,
+          "mole_fractions": {
+            "Water": 1
+          }
+        },
+        {
+          "tag": "E",
+          "type": "HeatExchanger",
+          "spec": {
+            "mode": "ua",
+            "area_m2": 2,
+            "overall_coefficient_w_m2_k": 500
+          }
+        },
+        {
+          "tag": "PRODUCT",
+          "type": "MaterialStream",
+          "x": 380,
+          "y": 100
+        },
+        {
+          "tag": "HOTOUT",
+          "type": "MaterialStream"
+        }
+      ],
+      "connections": [
+        {
+          "source": "COLD",
+          "target": "E"
+        },
+        {
+          "source": "HOT",
+          "target": "E",
+          "target_port": 1
+        },
+        {
+          "source": "E",
+          "target": "PRODUCT"
+        },
+        {
+          "source": "E",
+          "target": "HOTOUT",
+          "source_port": 1
+        }
+      ]
+    }
+  }
+}

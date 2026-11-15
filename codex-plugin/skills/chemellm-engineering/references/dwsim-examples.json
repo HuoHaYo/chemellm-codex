@@ -1,5 +1,5 @@
 {
-  "note": "合成复算示例，不是工厂数据、报价或设计依据；先保存项目要求、计划与依据，再选 examples 中的一项作为 request；check 时将 action 改为 check。",
+  "note": "合成接口示例，不是工厂数据、报价或设计依据。新项目初始化后即可 check/create 试算；正式采用再补齐依据与交付映射。",
   "engine_baseline": "DWSIM 9.0.5 on Windows",
   "examples": {
     "pump": {

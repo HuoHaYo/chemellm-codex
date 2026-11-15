@@ -1,5 +1,7 @@
 # 按需安装外部工具
 
+QElectroTech 使用 `dependency="qelectrotech"`。Windows 0.100 官方包固定 SHA256，使用已有 7-Zip 提取到当前用户 Programs；不执行管理员安装器、不修改文件关联。无需重复询问已明确授权的安装；缺少 7-Zip 返回人工安装方案，不自动安装前置软件。
+
 Blender 已纳入检测与安装目录，使用 `dependency="blender"`；支持 4.1+ 的后台、glTF 和 Eevee 接口检测。纯参数化三维演示不要求 FreeCAD，导入 STEP/FCStd 时才另检测 FreeCAD。Windows 安装准确包 ID 为 `BlenderFoundation.Blender`，同样遵循下述安装授权流程。
 
 只在当前任务确实需要某项能力时检查对应环境。`chem_dependencies(dependency=...)` 检测 DWSIM、FreeCAD、Blender、LibreOffice 或 Cantera；已可用则继续任务。已安装但接口损坏时先检查路径、运行器和日志，避免重复安装。LibreOffice 的轻量替代输出已满足任务时无需提出安装。

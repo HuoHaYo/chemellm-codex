@@ -14,24 +14,41 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from chemellm_codex import skill_fingerprint
+from chemellm_codex import skill_fingerprint, skill_inventory
 DIRECTORIES = {"app", "kernel", "chemellm_codex", "codex-plugin", "scripts", "release", ".agents", "docs"}
 FILES = {"README.md", "INSTALL.cmd", "CHECK.cmd", "安装使用说明.md", "pyproject.toml", "AGENTS.md"}
 # Explicit source additions make review builds complete before staging, without
 # sweeping arbitrary untracked documents or user material into a release.
 SOURCE_ADDITIONS = {
-    'app/basis_selection.py', 'app/blender.py', 'app/efficiency.py', 'app/project_store.py',
+    'app/pipe_geometry.py', 'kernel/drawing_style.py', 'scripts/test_visual_standards.py',
+    'docs/visual-standardization.md', 'docs/visual-sources.json', 'docs/plugin-backlog.md',
+    'codex-plugin/skills/chemellm-engineering/references/visual-standards.md',
+    'app/qelectrotech.py', 'kernel/qelectrotech_bridge.py', 'scripts/install-qelectrotech.py',
+    'scripts/test_qelectrotech.py', 'docs/qelectrotech.md', 'docs/examples/qelectrotech-loop.json',
+    'codex-plugin/skills/chemellm-engineering/references/automation.md',
+    'app/basis_selection.py', 'app/blender.py', 'app/efficiency.py', 'app/project_store.py', 'app/delivery.py',
     'kernel/efficient.py', 'kernel/blender_bridge.py', 'kernel/blender_worker.py', 'kernel/freecad_mesh_worker.py',
-    'scripts/test_efficiency.py', 'scripts/test_basis_selection.py', 'scripts/test_blender.py',
+    'scripts/test_efficiency.py', 'scripts/test_basis_selection.py', 'scripts/test_blender.py', 'scripts/test_delivery.py',
     'scripts/fixtures/stdio_concurrency.py',
+    'app/tool_discovery.py', 'scripts/test_skill_efficiency.py', 'scripts/benchmark_skill_efficiency.py',
     'codex-plugin/skills/chemellm-engineering/references/blender.md',
     'codex-plugin/skills/chemellm-engineering/references/numerical-selection.md',
     'codex-plugin/skills/chemellm-engineering/references/efficient-workflow.md',
     'codex-plugin/skills/chemellm-engineering/references/pricing.md',
     'codex-plugin/skills/chemellm-engineering/references/references.md',
-    'docs/blender.md', 'docs/efficiency-v2.md',
+    'docs/blender.md', 'docs/efficiency-v2.md', 'docs/skill-efficiency.md',
     'docs/examples/blender-plant.json', 'release/notes-v0.6.0.md',
 }
+# Only the five reviewed skill trees; no arbitrary untracked files or user assets.
+SKILL_NAMES = {'chemellm-engineering', 'chemellm-dwsim', 'chemellm-3d', 'chemellm-references', 'chemellm-costing'}
+SOURCE_ADDITIONS.update('codex-plugin/skills/'+name+'/SKILL.md' for name in SKILL_NAMES)
+SOURCE_ADDITIONS.update('codex-plugin/skills/chemellm-dwsim/references/'+name+'.md'
+                        for name in ('basics', 'units', 'convergence', 'layout', 'studies', 'publish'))
+SOURCE_ADDITIONS.update('codex-plugin/skills/chemellm-dwsim/references/examples/'+name+'.json'
+                        for name in ('pump', 'flash', 'heat_exchanger', 'benzene_toluene_column', 'wgs_conversion', 'wgs_equilibrium'))
+SOURCE_ADDITIONS.update('codex-plugin/skills/'+name+'/references/'+file
+                        for name, file in [('chemellm-3d','blender.md'), ('chemellm-references','references.md'),
+                                           ('chemellm-costing','pricing.md')])
 
 
 def allowed(name: str) -> bool:
@@ -67,7 +84,9 @@ def build(destination: Path) -> Path:
     target = destination / (folder + ".zip")
     skill_sha = skill_fingerprint(ROOT/'codex-plugin/skills/chemellm-engineering')
     manifest = {"version": version, "platform": "windows-x64", "workflowVersion":2,
-                "skillFingerprint":skill_sha, "files": []}
+                "skillFingerprint":skill_sha,
+                "skillSetFingerprint":skill_fingerprint(ROOT/'codex-plugin/skills'),
+                "skills":skill_inventory(ROOT/'codex-plugin/skills'), "files": []}
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for name in names:
             content = (ROOT / name).read_bytes()

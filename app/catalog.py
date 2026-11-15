@@ -1,4 +1,8 @@
 TOOLS = [
+    {'id': 'qelectrotech', 'name': 'QElectroTech 仪表与电气接线', 'category': '自控电气',
+     'engine': 'QElectroTech 0.100 native XML / ChemELLM vectors', 'status': 'integrated',
+     'url': 'https://qelectrotech.org/', 'license': 'QElectroTech GPL-2.0-or-later；软件不随插件分发',
+     'description': '明确端子与导线建模，检查连接、网名及芯线，生成自包含 QET、连接表和 PDF/SVG；预览由 ChemELLM 绘制，不代替电气或功能安全审核。'},
     {'id': 'export_blender', 'name': 'Blender 化工厂三维演示', 'category': '三维演示',
      'engine': 'Blender / optional FreeCAD', 'status': 'integrated', 'url': 'https://www.blender.org/',
      'license': 'Blender GPL-3.0-or-later；外部软件不随插件分发',

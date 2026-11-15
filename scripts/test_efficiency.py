@@ -137,13 +137,13 @@ class EfficiencyTests(unittest.TestCase):
             prefix = 'deliverables/'+first['registration_id']+'/'
             self.assertIn(prefix+'assets/model.glb', archive.namelist())
             self.assertIn('assets/model.glb', archive.read(prefix+'index.html').decode())
-            for f in json.loads(archive.read('manifest.json'))['files']:
+            for f in json.loads((k.BUNDLES_DIR/bundled['name']).with_suffix('.manifest.json').read_text(encoding='utf-8'))['files']:
                 self.assertEqual(hashlib.sha256(archive.read(f['archivePath'])).hexdigest(), f['sha256'])
         # Originals changing outside the store do not change the fixed version.
         (TASK/'index.html').write_text('new version', encoding='utf-8')
         second = self.register(ident, paths, checks)
         self.assertNotEqual(first['registration_id'], second['registration_id'])
-        registered = k.load_project(ident)['files'][0]
+        registered = k.load_project(ident)['files'][-len(paths)]
         k._artifact_path(registered['artifactId']).write_bytes(b'tampered fixed version')
         self.assertFalse(self.post('/v1/projects/'+ident+'/review', {})['review']['ready'])
         failed = self.client.post('/v1/projects/'+ident+'/bundle', json={})
@@ -211,9 +211,9 @@ class EfficiencyTests(unittest.TestCase):
         self.register(ident,['design.txt'],run='unadopted')
         bundled=self.post(path+'/bundle',{})['bundle']
         with zipfile.ZipFile(k.BUNDLES_DIR/bundled['name']) as archive:
-            manifest=json.loads(archive.read('manifest.json'))
-            self.assertEqual([f['artifactId'] for f in manifest['files']],[chosen])
-            self.assertIn('calculation-results/'+linked+'.json',archive.namelist())
+            manifest=json.loads((k.BUNDLES_DIR/bundled['name']).with_suffix('.manifest.json').read_text(encoding='utf-8'))
+            self.assertEqual([f['artifactId'] for f in manifest['files'] if f.get('artifactId')],[chosen])
+            self.assertNotIn('calculation-results/'+linked+'.json',archive.namelist())
             self.assertNotIn('calculation-results/'+unrelated+'.json',archive.namelist())
 
     def test_2500_parameters_two_groups_and_incremental_storage(self):

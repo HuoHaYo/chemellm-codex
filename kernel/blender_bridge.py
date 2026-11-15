@@ -155,6 +155,7 @@ def build_scene(request, project, workspace, data_root, folder, allowed_roots=()
         (folder/'scene-input.json').write_text(json.dumps(original, ensure_ascii=False, indent=2), encoding='utf-8')
         # Keep the exact worker sources used by this export for later reproduction.
         shutil.copyfile(Path(__file__).with_name('blender_worker.py'), folder/'blender_worker.py')
+        shutil.copyfile(Path(__file__).resolve().parents[1]/'app/pipe_geometry.py', folder/'pipe_geometry.py')
         if cad_jobs:
             shutil.copyfile(Path(__file__).with_name('freecad_mesh_worker.py'), folder/'freecad_mesh_worker.py')
             config = {'jobs': cad_jobs, 'deflection_mm': request.tessellation_mm, 'output': str(folder/'cad-mesh.json')}
@@ -170,9 +171,9 @@ def build_scene(request, project, workspace, data_root, folder, allowed_roots=()
         report = check_outputs(folder, request)
         report['cad_sources'] = source_manifest
         report['references'] = reference_snapshot
-        report['source_script_sha256'] = {p.name: digest(p) for p in folder.glob('*worker.py')}
+        report['source_script_sha256'] = {p.name: digest(p) for p in folder.glob('*.py')}
         report['engineering_review'] = 'not_performed'
-        report['warnings'] = ['三维成果用于演示；未执行碰撞、检修空间、安全间距或施工配管审核。']
+        report['warnings'] = ['三维成果用于演示；管道封闭连通检查不包含管线自交、接管匹配、设备职责、碰撞、检修空间、安全间距或施工配管审核。']
         (folder/'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         (folder/'reproduce.md').write_text(
             '# 三维演示复现\n\n原始请求见 request.json；可移植场景见 scene-input.json。\n'

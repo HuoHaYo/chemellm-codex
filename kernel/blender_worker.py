@@ -3,6 +3,9 @@ import json
 import math
 from pathlib import Path
 import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pipe_geometry import pipe_mesh
 
 import bpy
 from mathutils import Vector
@@ -127,16 +130,45 @@ def build_item(item, scale, meshes, collection):
             box(name+' crossbeam', (post, W, post), (x, 0, H), mat, root)
         for y in (-W/2, W/2):
             box(name+' beam', (L, post, post), (0, y, H), mat, root)
-    elif kind in {'pipe', 'road', 'fence'}:
+    elif kind == 'pipe':
+        vertices, faces, pipe_report = pipe_mesh(item['points'], item['diameter'], item.get('bend_radius'))
+        mesh = bpy.data.meshes.new(name+' continuous pipe')
+        mesh.from_pydata([[v*scale for v in p] for p in vertices], [], faces)
+        mesh.update()
+        obj = bpy.data.objects.new(name+' continuous pipe', mesh)
+        collection.objects.link(obj)
+        obj.parent = root
+        mesh.materials.append(mat)
+        for polygon in mesh.polygons[:-2]:
+            polygon.use_smooth = True
+        import bmesh
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        manifold = all(e.is_manifold for e in bm.edges)
+        pending_vertices, components = set(bm.verts), 0
+        while pending_vertices:
+            components += 1
+            stack = [pending_vertices.pop()]
+            while stack:
+                for edge in stack.pop().link_edges:
+                    for vertex in edge.verts:
+                        if vertex in pending_vertices:
+                            pending_vertices.remove(vertex)
+                            stack.append(vertex)
+        bm.free()
+        if not manifold or components != 1:
+            raise RuntimeError(name+': 管道网格未封闭或不连通')
+        root['pipe_geometry'] = json.dumps({**pipe_report, 'closed_manifold': manifold,
+                                           'connected_components': components,
+                                           'coordinate_space': 'item_local',
+                                           'length_unit': 'mm' if scale == .001 else 'm'}, ensure_ascii=False)
+    elif kind in {'road', 'fence'}:
         points = [Vector([v*scale for v in p]) for p in item['points']]
         for i, (a, b) in enumerate(zip(points, points[1:])):
-            if kind == 'pipe':
-                beam(f'{name}-{i}', a, b, D/2, mat, root)
-            else:
-                height = H if kind == 'fence' else .06
-                obj = box(f'{name}-{i}', ((b-a).length, W if kind == 'road' else .08, height),
-                          (a+b)/2+Vector((0, 0, height/2)), mat, root)
-                obj.rotation_euler = (b-a).to_track_quat('X', 'Z').to_euler()
+            height = H if kind == 'fence' else .06
+            obj = box(f'{name}-{i}', ((b-a).length, W if kind == 'road' else .08, height),
+                      (a+b)/2+Vector((0, 0, height/2)), mat, root)
+            obj.rotation_euler = (b-a).to_track_quat('X', 'Z').to_euler()
     elif kind == 'cad':
         for part in meshes[name]:
             mesh = bpy.data.meshes.new(name+' '+part['name'])
@@ -322,6 +354,7 @@ def main():
     for item, root in zip(request['items'], roots):
         ps = corners([o for o in root.children_recursive if o.type == 'MESH'])
         report_items.append({'id': item['id'], 'kind': item['kind'], 'reference': item['reference'],
+                             **({'pipe_geometry': json.loads(root['pipe_geometry'])} if item['kind'] == 'pipe' else {}),
                              'bounds_m': [[min(p[i] for p in ps) for i in range(3)],
                                           [max(p[i] for p in ps) for i in range(3)]]})
     projected = [world_to_camera_view(scene, camera, p) for p in points]

@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "path": "showcase/fr2023/overview.webp",
+      "bytes": 35420,
+      "sha256": "cd7381e65a82f0724767a150728fcc40208b222779ba6b5bd8884217d4327a01",
+      "source": "总PFD_高清总览.png",
+      "source_sha256": "30045b1b95e4b51b638f14a609a6826ae6a67555c73a08fc73d36f667276c0a5"
+    },
+    {
+      "path": "showcase/fr2023/crude.webp",
+      "bytes": 34856,
+      "sha256": "9e0a4ffd8bcf9337271472329fd5b2c6ec36dfbbe1cd221a1e4e1e693aa247a9",
+      "source": "crude-1.png",
+      "source_sha256": "ec6f79e4fad1a4a1252ee83b72d5ef45ed8480ab9ac5b97598e5a069f27ecb53"
+    },
+    {
+      "path": "showcase/fr2023/ethylene.webp",
+      "bytes": 30428,
+      "sha256": "e4c7ef72193f17a2e38178cbb12e486aadd1e7711b478d700768502a100c7f7a",
+      "source": "ethylene-1.png",
+      "source_sha256": "668755ff29a40f462249f28ca608d370eea26878ec2656421b6a6f186503b625"
+    },
+    {
+      "path": "showcase/fr2023/aromatics.webp",
+      "bytes": 32144,
+      "sha256": "93ca0304a083aca9ef226be6b00fbc612187c817ea611ce3fc4faaba09981c7b",
+      "source": "arom-1.png",
+      "source_sha256": "8431cffff9017baa51c8b64bab79b00bc07784ed44763b4ab2830d85055ed79f"
+    },
+    {
+      "path": "showcase/fr2023/pfd.svg",
+      "bytes": 357426,
+      "sha256": "63dc34b09f1c99ba2b0c3808c7ea8f28fb116adbe586dff3a8c0b6d268bf0829",
+      "source": "巨幅总PFD矢量图",
+      "source_sha256": "81001b3dc7e7f99bdba89587d55b773b6885e807690b8f982a33af74ea0831e4"
+    },
+    {
+      "path": "showcase/fr2023/zones.json",
+      "bytes": 446,
+      "sha256": "dff06fb4ff668b7f9775ff417387bae0f36ec0fa06b3f3f018d9ebf35ec607a1",
+      "source": "巨幅总PFD分区坐标"
+    },
+    {
+      "path": "showcase/fr2023/pfd.pdf",
+      "bytes": 204295,
+      "sha256": "a7950f3b0c43e39920ed50ead0c0b10ba0036f2dfdee3e72b8a6310f3d92a94b",
+      "source": "福建联合石化_单张巨幅总PFD.pdf",
+      "source_sha256": "abd16baf5debf88e3d3a5f456ff1f89f81172e4c194939aa43327cd0dd2f5d87"
+    },
+    {
+      "path": "showcase/fr2023/research.pdf",
+      "bytes": 308360,
+      "sha256": "83963706b1bdc6ac47dcb86aeae020f5eb99c3029f76b7a012f1bced46b5964d",
+      "source": "工程研究报告.pdf",
+      "source_sha256": "485d9b0b647b38c1fc70e7c769074db598a47daaebcc7e07c79893ef393c7780"
+    },
+    {
+      "path": "showcase/tianzheng/overview.webp",
+      "bytes": 36194,
+      "sha256": "924a3fd2bf77aa30337fe4a2a2a646403b1d7fbe3491e1372ab0807e82c284b9",
+      "source": "preview.png",
+      "source_sha256": "0192db8bdbcddd38b83aa77ec0c92bc2fdc21edb1b0683389119c154c8aa627f"
+    },
+    {
+      "path": "showcase/tianzheng/feasibility.pdf",
+      "bytes": 427789,
+      "sha256": "fcdd0706df84c7b349e9a53bc299a6e2d42d121e478a262bc7c9ee334a5816ba",
+      "source": "项目可行性研究报告.pdf",
+      "source_sha256": "2fab584eeda2487383d16f306a540dbe1c82909ab79d9b3273554c3ad4ea3d47"
+    },
+    {
+      "path": "showcase/tianzheng/design.pdf",
+      "bytes": 556678,
+      "sha256": "1974237f001aa602769ff9dbd199b4e2ce21363a98d9aeaa3005b02d68113e2a",
+      "source": "初步设计说明书.pdf",
+      "source_sha256": "a14655cdb78117d6d92141049b6859fa8fd150426ca0c09f137904e3cc689385"
+    },
+    {
+      "path": "showcase/tianzheng/equipment.pdf",
+      "bytes": 310395,
+      "sha256": "aae05218610f8190cffebd3046fc07fdff121a589891f9d3525df29edea668e5",
+      "source": "典型设备工艺设计计算说明书.pdf",
+      "source_sha256": "fabdabfd617d9403c1529a8cd89684f4444d7521a382ce2c6e0f91b0945c34ea"
+    },
+    {
+      "path": "showcase/tianzheng/drawings.pdf",
+      "bytes": 181848,
+      "sha256": "fcc6f9109619b9950e5cd6c0c6d21e29190379fe4c8059aee3e78ab41ab4d0f9",
+      "source": "设计图集.pdf",
+      "source_sha256": "f90c087c427ab1f41e24d2f6c259937edf77252fb1d0a5fefca7576806b81278"
+    },
+    {
+      "path": "showcase/tianzheng/safety.pdf",
+      "bytes": 417478,
+      "sha256": "cef6d8d320bbba068417dd29192990a307a035da63cbc430dc75ba900e6036b3",
+      "source": "安全环保与节能经济专题.pdf",
+      "source_sha256": "923468e8b4762432bf77e62ef754d273b18ae4c7f9031f03d4c21a2fb3ff6a5f"
+    },
+    {
+      "path": "showcase/tianzheng/pfd.webp",
+      "bytes": 26970,
+      "sha256": "201fd6f3330d817a097e3c59b7a4fe9ad1277f07672837bd944bb5829b61fb0f",
+      "source": "设计图集第1页",
+      "source_sha256": "f90c087c427ab1f41e24d2f6c259937edf77252fb1d0a5fefca7576806b81278"
+    },
+    {
+      "path": "showcase/tianzheng/pid.webp",
+      "bytes": 40882,
+      "sha256": "9a4a9bdd8eaf72822346a0d057606043aaa2d015e722b0229729b66b7b7995f1",
+      "source": "设计图集第3页",
+      "source_sha256": "f90c087c427ab1f41e24d2f6c259937edf77252fb1d0a5fefca7576806b81278"
+    },
+    {
+      "path": "showcase/tianzheng/layout.webp",
+      "bytes": 29224,
+      "sha256": "083f95ba4d95687ad25b3c615847282ae9248dc9c4c8d604799b1a681afb6e92",
+      "source": "设计图集第9页",
+      "source_sha256": "f90c087c427ab1f41e24d2f6c259937edf77252fb1d0a5fefca7576806b81278"
+    },
+    {
+      "path": "showcase/tianzheng/scene.glb",
+      "bytes": 3629116,
+      "sha256": "aa51ce0839b09c9a9a916b385709db7aeb00a6b8e526efb469488dea587b3e43",
+      "source": "Blender厂区GLB；公开版移除附加元数据",
+      "source_sha256": "a4294f018f5557221185a1b3a8b7423c3dfc225ff072b6dc6bc811ae1f9eddf5"
+    },
+    {
+      "path": "showcase/vendor/three.module.js",
+      "bytes": 1314680,
+      "sha256": "89074684ade72d694575eed82346b55cd11a48f06dc9e368f427d3858b220977",
+      "source": "Three.js r170 / MIT",
+      "source_sha256": "ce1fa418de16a19495a9f72495580e3015d7745c296d3ce0485897f902ddedfb"
+    },
+    {
+      "path": "showcase/vendor/GLTFLoader.js",
+      "bytes": 110278,
+      "sha256": "458b025b12213713958b07012b48aa5e84aebb562c92cfe53ea82d41bda2fd42",
+      "source": "Three.js r170 / MIT",
+      "source_sha256": "956746f80fe2af1650a6c0b156ac619f2c66ab9fc697e1d81d3bce1e4654a5d0"
+    },
+    {
+      "path": "showcase/vendor/OrbitControls.js",
+      "bytes": 32146,
+      "sha256": "6f3052dd8860a60fe6999260d50558ff54609523724c6e374326228e5590cf55",
+      "source": "Three.js r170 / MIT",
+      "source_sha256": "80efaadea4f8a636a65fb0bd08bfef62f3d93a0bb94e2e7500f23176c5c07f4e"
+    },
+    {
+      "path": "showcase/vendor/BufferGeometryUtils.js",
+      "bytes": 31780,
+      "sha256": "3de832095679e56578beddf70f3e90846a47ec8a886fa8eb21c973cdaef88922",
+      "source": "Three.js r170 / MIT",
+      "source_sha256": "c25b7930e570e9ec56173cd3b866ec8d2e10016630db3937efb439daf1cedbf6"
+    },
+    {
+      "path": "showcase/vendor/LICENSE",
+      "bytes": 1081,
+      "sha256": "4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454",
+      "source": "Three.js r170 / MIT",
+      "source_sha256": "4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454"
+    }
+  ]
+}

@@ -152,6 +152,20 @@ class DependencyTests(unittest.TestCase):
 
 
 class RecipeTests(unittest.TestCase):
+    def test_qelectrotech_recipe_is_pinned_user_local_without_elevation(self):
+        import runpy
+        if os.name != 'nt':
+            self.skipTest('Windows path recipe')
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = deps.DependencyManager(Path(temporary), ROOT)
+            recipe = manager._recipe('qelectrotech')
+            script = runpy.run_path(str(ROOT/'scripts/install-qelectrotech.py'))
+            self.assertEqual(recipe['sha256'], script['SHA256'])
+            self.assertEqual(recipe['package_source'], script['URL'])
+            self.assertIn('Programs', recipe['target'])
+            self.assertEqual(recipe['commands'][0][0], sys.executable)
+            self.assertNotIn('winget', str(recipe['commands']).lower())
+
     def test_fixed_recipes_environment_and_scope(self):
         manager = deps.DependencyManager(Path(temporary.name), ROOT)
         with patch.object(deps.shutil, 'which', return_value='C:/WindowsApps/winget.exe'):
