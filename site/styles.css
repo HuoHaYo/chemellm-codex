@@ -579,11 +579,6 @@ h1 {
   letter-spacing: -.5px;
 }
 
-.tool-names>span:nth-child(2) {
-  font-family: Georgia,serif;
-  font-style: italic;
-}
-
 .tool-names sup {
   vertical-align: middle;
   font-size: 8px;
