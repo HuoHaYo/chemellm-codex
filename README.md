@@ -2,11 +2,11 @@
 
 面向 Codex 的本地化工工程插件：技能负责工程流程，stdio MCP 连接本仓库的计算、证据、文档、工程对象、自动校核和成果打包能力。MCP 在进程内复用 HTTP 内核，不需要预先启动服务，也不占用 TCP 端口。
 
-当前公开发行版为 `v0.6.0`，支持 Blender 厂区三维演示，包含来源组、批量成果登记与 SQLite 项目流程。更新安装后请开启新的 Codex 会话。
+当前发行版为 `v0.7.0`。更新安装后请开启新的 Codex 会话。
 
-开发版新增 [QElectroTech 仪表与电气接线](docs/qelectrotech.md)：同一 MCP 生成可编辑 QET 工程、连接表和 PDF/SVG，检查明确端子与导线；不替代电气选型或功能安全审核。
+使用 [QElectroTech 仪表与电气接线](docs/qelectrotech.md) 可生成可编辑 QET 工程、连接表和 PDF/SVG，检查给定端子与导线。
 
-开发版还可从表格、仿真结果和实验拟合记录生成 [科研图表](docs/charts.md)，支持 SVG、PDF 和 PNG。
+可从表格、仿真结果和实验拟合记录生成 [科研图表](docs/charts.md)，支持 SVG、PDF 和 PNG。
 
 视觉标准化改进与公开竞赛/标准调研见[说明](docs/visual-standardization.md)：连续管道弯头、CAD线型/线宽及按图种检查规则。未完成能力统一维护在[插件缺陷待办](docs/plugin-backlog.md)。
 
@@ -16,7 +16,7 @@
 
 ## 用户安装
 
-从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.6.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
+从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.7.0-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
 
 先安装并登录支持插件的 Codex 桌面版或 CLI。看到 `Installed successfully` 后重启 Codex、开启新会话，即可提出化工任务。双击 **`CHECK.cmd`** 可再次检查运行环境。项目数据保存到解压目录 `data/`，快照在 `.chem/`；安装完成后保留整个目录。
 
