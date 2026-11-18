@@ -6,7 +6,7 @@ Windows x64 发行包是可自引导的联网安装 ZIP，包含已纳入 Git �
 
 `release/bootstrap.json` 固定 uv 版本、下载 URL、官方 Release 提供的 SHA256 和 CPython 版本。安装器校验 uv 后，使用 uv 准备包内 `runtime/python/` 和 `.venv/`；不修改全局 Python、PATH 或相邻 DSH 仓库。
 
-`release/requirements-windows-x64.lock` 固定全部 71 项运行/构建依赖及发行文件哈希，针对 CPython 3.12 / Windows x64 解析；只安装二进制 wheel，不要求用户配置 C/C++ 编译器。源码以 editable 形式安装，保证既有内核相对文件路径与材料导入范围仍以本包为根目录。
+`release/requirements-windows-x64.lock` 固定全部 72 项运行/构建依赖及发行文件哈希，针对 CPython 3.12 / Windows x64 解析；只安装二进制 wheel，不要求用户配置 C/C++ 编译器。源码以 editable 形式安装，保证既有内核相对文件路径与材料导入范围仍以本包为根目录。
 
 更新依赖时用受信任的 uv 运行，随后必须完成干净环境验证：
 

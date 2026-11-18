@@ -27,6 +27,7 @@ dependencies = [
   "ezdxf>=1.4,<2",
   "openpyxl==3.1.5",
   "matplotlib>=3.9,<4",
+  "vl-convert-python==1.9.0.post1",
   "Pillow>=10,<12",
   "pdfplumber==0.11.9",
   "pypdfium2==5.8.0",

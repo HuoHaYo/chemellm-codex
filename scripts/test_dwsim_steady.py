@@ -2,6 +2,7 @@
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
 import time
 import unittest
@@ -359,6 +360,22 @@ class SteadyTests(base.DwsimTests):
         self.assertGreater(job['comparison'][0]['duty'],job['comparison'][1]['duty'])
         self.assertGreater(job['comparison'][1]['duty'],job['comparison'][2]['duty'])
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
+        chart = self.client.post(self.base+'/execute', json=dict(tool='export_chart', args={
+            'mode': 'dwsim_scan', 'title': 'DWSIM 进料温度对加热负荷的影响',
+            'job_id': job['job_id'], 'metric_key': 'duty',
+        }))
+        self.assertEqual(chart.status_code, 200, chart.text)
+        chart_files = [base.server._artifact_path(a['artifactId']) for a in chart.json()['artifacts']]
+        chart_data = next(p for p in chart_files if p.name == 'chart-data.json')
+        plotted = json.loads(chart_data.read_text(encoding='utf-8'))['valid']
+        self.assertEqual([p['x'] for p in plotted], [300, 310, 320])
+        self.assertEqual([p['y'] for p in plotted], [row['duty'] for row in job['comparison']])
+        self.assertEqual([p['calculation_id'] for p in plotted], [c['calculation_id'] for c in job['cases']])
+        if os.environ.get('CHEMELLM_CHART_SAVE_QA') == '1':
+            qa = Path(base.__file__).resolve().parents[1]/'output'/'chart-qa'/'dwsim'
+            qa.mkdir(parents=True, exist_ok=True)
+            for p in chart_files:
+                (qa/p.name).write_bytes(p.read_bytes())
         broken=base.heater_model();broken['objects']=[o for o in broken['objects'] if o['tag']!='PRODUCT']
         broken['connections']=[e for e in broken['connections'] if e['target']!='PRODUCT']
         bad=self.sim(action='create',model=broken)

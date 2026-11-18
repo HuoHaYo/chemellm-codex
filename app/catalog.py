@@ -1,4 +1,7 @@
 TOOLS = [
+    {"id":"export_chart","name":"Vega-Lite 科研图表","category":"实验与数据","engine":"Vega-Lite / vl-convert",
+     "status":"integrated","url":"https://vega.github.io/vega-lite/","license":"BSD-3-Clause / vl-convert 使用 BSD-3-Clause",
+     "description":"从本项目 CSV/XLSX、DWSIM 扫描或实验拟合记录生成 SVG/PDF/PNG，归档离线图表规格、入图数据和来源。"},
     {'id': 'qelectrotech', 'name': 'QElectroTech 仪表与电气接线', 'category': '自控电气',
      'engine': 'QElectroTech 0.100 native XML / ChemELLM vectors', 'status': 'integrated',
      'url': 'https://qelectrotech.org/', 'license': 'QElectroTech GPL-2.0-or-later；软件不随插件分发',

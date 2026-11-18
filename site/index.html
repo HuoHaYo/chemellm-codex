@@ -112,6 +112,35 @@
       <div class="simulation-bottom"><p><span class="status-dot"></span> 在本地 Codex 中使用；Blender、DWSIM 等专业软件按任务需要单独安装。</p><a class="text-link" href="https://github.com/HuoHaYo/chemellm-codex/releases/tag/v0.6.0" target="_blank" rel="noopener noreferrer">查看完整更新说明 <span aria-hidden="true">↗</span></a></div>
     </div></section>
 
+    <section class="section" id="development">
+      <div class="container">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow"><span></span> GITHUB / DEVELOPMENT</p>
+            <h2>开发版功能</h2>
+          </div>
+          <p class="section-intro">以下功能可从 GitHub 源码安装后使用。<br>官网提供的 Windows 安装包为 v0.6.0。</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <h3>绘制科研图表</h3>
+            <p>用 CSV、Excel、DWSIM 工况扫描或实验拟合结果绘制图表。可按样品分组，展示拟合区间和工况曲线，并导出 SVG、PDF 或 PNG。</p>
+            <a class="feature-caption text-link" href="https://github.com/HuoHaYo/chemellm-codex/blob/main/docs/charts.md">查看图表用法 <span aria-hidden="true">↗</span></a>
+          </article>
+          <article class="feature">
+            <h3>绘制仪表与电气接线</h3>
+            <p>根据给定的端子和导线连接生成可编辑的 QElectroTech 工程、连接表和 PDF／SVG 图纸，并检查端子引用与接线冲突。</p>
+            <a class="feature-caption text-link" href="https://github.com/HuoHaYo/chemellm-codex/blob/main/docs/qelectrotech.md">查看接线用法 <span aria-hidden="true">↗</span></a>
+          </article>
+          <article class="feature">
+            <h3>表达管道与工艺图纸</h3>
+            <p>Blender 管道沿中心线生成连续圆弧弯头，可指定弯曲半径。导出的 CAD 图纸保留虚线、点划线与线宽，便于区分物料线和仪表信号线。</p>
+            <a class="feature-caption text-link" href="https://github.com/HuoHaYo/chemellm-codex/blob/main/docs/visual-standardization.md">查看图纸与三维改进 <span aria-hidden="true">↗</span></a>
+          </article>
+        </div>
+      </div>
+    </section>
+
     <section class="workflow-section" id="workflow"><div class="container">
       <div class="workflow-heading"><div><p class="eyebrow"><span></span> FROM IDEA TO DESIGN</p><h2>说出你的想法，<br>开始计算与设计。</h2></div><p>告诉 Codex 要研究的工艺和目标。<br>ChemELLM 连接计算、模拟与成果生成工具。</p></div>
       <ol class="workflow-steps">
@@ -124,7 +153,7 @@
     </div></section>
 
     <section class="section start-section" id="start"><div class="container start-grid">
-      <div class="start-copy"><p class="eyebrow"><span></span> YOUR NEXT ENGINEERING PROJECT</p><h2>下一项工程，<br>从这里开始。</h2><p>准备好 Codex，其他交给安装器。<br>无需自行安装 Python 或 Git。</p><a class="button" href="/downloads/ChemELLM-Codex-0.6.0-windows-x64.zip" download>下载 ChemELLM v0.6.0 <span aria-hidden="true">↓</span></a><div class="download-links"><a href="/downloads/SHA256SUMS.txt">SHA256 校验</a><span>·</span><a href="https://github.com/HuoHaYo/chemellm-codex/releases/latest" target="_blank" rel="noopener noreferrer">GitHub 发行页 ↗</a></div><p class="install-note">Windows 10 / 11 x64 · 首次安装需联网访问 GitHub 和 PyPI</p></div>
+      <div class="start-copy"><p class="eyebrow"><span></span> YOUR NEXT ENGINEERING PROJECT</p><h2>下一项工程，<br>从这里开始。</h2><p>准备好 Codex，其他交给安装器。<br>无需自行安装 Python 或 Git。</p><a class="button" href="/downloads/ChemELLM-Codex-0.6.0-windows-x64.zip" download>下载 ChemELLM v0.6.0 <span aria-hidden="true">↓</span></a><div class="download-links"><a href="/downloads/SHA256SUMS.txt">SHA256 校验</a><span>·</span><a href="https://github.com/HuoHaYo/chemellm-codex/releases/latest" target="_blank" rel="noopener noreferrer">GitHub 发行页 ↗</a><span>·</span><a href="#development">开发版功能 ↑</a></div><p class="install-note">Windows 10 / 11 x64 · 首次安装需联网访问 GitHub 和 PyPI</p></div>
       <div class="installation">
         <ol class="install-steps"><li><span>1</span><div><h3>准备 Codex</h3><p>安装并登录支持插件的 Codex 桌面版或 CLI。</p></div></li><li><span>2</span><div><h3>解压，双击 INSTALL.cmd</h3><p>完整解压到长期保留的可写目录。安装器会准备独立环境、检查连接并注册插件。</p></div></li><li><span>3</span><div><h3>重启 Codex，开启新会话</h3><p>看到 <code>Installed successfully</code> 后重启，即可开始提出化工任务。可用 <code>CHECK.cmd</code> 检查环境。</p></div></li></ol>
         <div class="prompt-box"><div class="prompt-heading"><span><span class="status-dot"></span> 试试你的第一句话</span><button class="copy-button" type="button" id="copy-prompt">复制 <span aria-hidden="true">⧉</span></button></div><p id="example-prompt">使用 ChemELLM 估算逆流换热器：热侧从 120 °C 降至 80 °C，冷侧从 20 °C 升至 60 °C，热负荷 500 kW，总传热系数 500 W/(m²·K)，温差修正因子取 1。计算对数平均温差与换热面积，生成计算报告。</p><span id="copy-status" class="sr-only" role="status" aria-live="polite"></span></div>

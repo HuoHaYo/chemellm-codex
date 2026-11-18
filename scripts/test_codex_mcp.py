@@ -261,6 +261,29 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('422', status.content[0].text)
 
     @connected
+    async def test_chart_export_stdio_with_replay_resources(self):
+        schema = await self.call("chem_tools", tool="export_chart")
+        self.assertEqual(schema["schema"]["discriminator"]["propertyName"], "mode")
+        project = await self.call("chem_project_init", request={"name": "科研图表协议测试", "task_kind": "research",
+                                  "deliverables": [{"key": "chart", "title": "曲线", "formats": ["svg", "pdf", "png"]}]})
+        pid = project["project"]["projectId"]
+        path = self.storage / "plot input.csv"
+        path.write_text("time,response\n0,1\n1,1.7\n2,3\n", encoding="utf-8")
+        source = await self.call("chem_intake", project_id=pid, path=str(path))
+        result = await self.call("chem_execute", project_id=pid, tool="export_chart", deliverable_keys=["chart"], args={
+            "mode": "table", "title": "响应曲线", "mark": "line", "artifact_id": source["artifact"]["artifactId"],
+            "x_column": "time", "y_column": "response", "x_unit": "s", "y_unit": "μmol·m⁻²",
+        })
+        deliverables = {a["kind"]: a for a in result["artifacts"] if a["delivery_role"] == "deliverable"}
+        self.assertEqual(set(deliverables), {"svg", "pdf", "png"})
+        for artifact in result["artifacts"]:
+            self.assertEqual(hashlib.sha256(Path(artifact["localPath"]).read_bytes()).hexdigest(), artifact["sha256"])
+        bundle = await self.call("chem_bundle", project_id=pid, artifact_ids=[deliverables["pdf"]["artifactId"]])
+        with zipfile.ZipFile(bundle["bundle"]["localPath"]) as archive:
+            contents = {Path(name).name for name in archive.namelist() if name.startswith("charts/")}
+        self.assertEqual(contents, {"chart.pdf", "chart.vl.json", "chart-data.json", "chart-source.json"})
+
+    @connected
     async def test_blender_real_stdio_export_and_artifact_hashes(self):
         schema = await self.call('chem_tools', tool='export_blender')
         self.assertIn('items', schema['schema']['required'])

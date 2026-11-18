@@ -96,7 +96,7 @@ def select_files(project, artifact_ids=None):
 
     # Dependencies are root-relative within the same fixed registration or scene.
     def group(f):
-        return f.get('registration_id') or f.get('scene_group') or f.get('artifactId')
+        return f.get('registration_id') or f.get('scene_group') or f.get('chart_group') or f.get('artifactId')
 
     indexes = {}
     for f in files:

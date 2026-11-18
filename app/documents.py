@@ -24,10 +24,15 @@ ALLOWED={".pdf",".docx",".pptx",".xlsx",".txt",".md",".csv",".json",".xml",".htm
 def safe_name(name):
     return re.sub(r'[\\/:*?"<>|\x00-\x1f]',"_",Path(name).name)[:180] or "document"
 
-def artifact_record(project_id,path,name=None,kind=None,preview=None,text="",metadata=None,artifact_id=None):
+def artifact_record(project_id,path,name=None,kind=None,preview=None,text="",metadata=None,artifact_id=None,*,db=None):
     ident=artifact_id or uid()
     details={**(metadata or {}),"bytes":path.stat().st_size,"sha256":hashlib.sha256(path.read_bytes()).hexdigest()}
-    execute("INSERT INTO artifacts(id,project_id,name,kind,path,preview_path,text,metadata,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(ident,project_id,name or path.name,kind or path.suffix.lstrip("."),str(path),str(preview) if preview else None,text,json.dumps(details,ensure_ascii=False),now()))
+    sql = "INSERT INTO artifacts(id,project_id,name,kind,path,preview_path,text,metadata,created_at) VALUES(?,?,?,?,?,?,?,?,?)"
+    fields = (ident,project_id,name or path.name,kind or path.suffix.lstrip("."),str(path),str(preview) if preview else None,text,json.dumps(details,ensure_ascii=False),now())
+    if db is not None:
+        db.execute(sql, fields)
+        return public_artifact(dict(db.execute("SELECT * FROM artifacts WHERE id=?", (ident,)).fetchone()))
+    execute(sql, fields)
     return public_artifact(one("SELECT * FROM artifacts WHERE id=?",(ident,)))
 
 def public_artifact(row):

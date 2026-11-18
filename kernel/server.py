@@ -80,6 +80,8 @@ from kernel.dwsim_studies import Studies, ProjectBusy  # noqa: E402
 from app.external_tools import find_freecad, find_libreoffice  # noqa: E402
 from kernel.dependencies import DependencyManager, DependencyPrepare, DependencyInstall  # noqa: E402
 from app.blender import BlenderInput  # noqa: E402
+from app.charting import ChartInput, ScanChart  # noqa: E402
+from kernel import chart_export  # noqa: E402
 from app.qelectrotech import QElectroTechInput  # noqa: E402
 from kernel import qelectrotech_bridge  # noqa: E402
 from app.external_tools import qelectrotech_status  # noqa: E402
@@ -155,8 +157,8 @@ CALC_TOOLS = {
 }
 SPECIAL_TOOLS = {"export_blender", "export_xlsx", "export_freecad", "pid", "pid_check", "pid_data",
                  "cad_part", "equipment_datasheet", "relief_sizing", "hazop_lopa",
-                 "compliance_matrix", "dwsim", "qelectrotech"}
-GENERATE_TOOLS = {"export_report", "pfd"}
+                 "compliance_matrix", "dwsim", "qelectrotech", "export_chart"}
+GENERATE_TOOLS = {"export_report", "pfd", "export_chart"}
 EVIDENCE_TOOLS = {
     "literature_search", "pubchem", "open_literature_search", "project_search",
     "fulltext_import", "source_fetch", "document_extract", "document_read",
@@ -166,6 +168,7 @@ EVIDENCE_TOOLS = {
 MIN_PHASE = {
     **{name: "basis" for name in CALC_TOOLS},
     **{name: "basis" for name in GENERATE_TOOLS},
+    "export_chart": "intake",
     "export_xlsx": "basis",
     "export_freecad": "basis",
     "export_blender": "basis",
@@ -404,6 +407,7 @@ def _normalize_artifacts(value: Any, found: list) -> list:
                 "delivery_role": delivery.file_role({**metadata, 'name': value.get('name'), 'kind': value.get('kind')}),
                 "depends_on": metadata.get('depends_on', []),
                 **{k: metadata[k] for k in ('scene_group', 'scene_path') if k in metadata},
+                **{k: metadata[k] for k in ('chart_group', 'relative_path') if metadata.get('chart_group') and k in metadata},
             })
             return found
         for item in value.values():
@@ -1843,7 +1847,17 @@ def _execute_tool(project_id: str, p: ExecuteIn, project=None, execution_id=None
                 'next_step': '用 chem_dependency_prepare 准备方案，说明当前任务需要它的理由；询问真实用户是否安装，收到明确“是”后才 chem_dependency_install。已安装但接口不可用时先修复路径/运行器。'})
     warning = _gate_check(project, p.tool)
     ensure_legacy_project(project)
-    if p.tool == "export_xlsx":
+    if p.tool == "export_chart":
+        try:
+            chart = ChartInput.model_validate(p.args).root
+            study_path = (DWSIM_STUDIES.folder(project_id) / chart.job_id / "study.json"
+                          if isinstance(chart, ScanChart) else None)
+            result = chart_export.export_chart(project_id, chart, KERNEL_DATA / "artifacts", study_path=study_path)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(422, str(exc)[:2000]) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)[:2000]) from exc
+    elif p.tool == "export_xlsx":
         result = export_xlsx(project)
     elif p.tool == "export_blender":
         result = export_blender(project, p.args or {})
@@ -1879,7 +1893,7 @@ def _execute_tool(project_id: str, p: ExecuteIn, project=None, execution_id=None
 
     artifacts = _normalize_artifacts(result, [])
     calculation_id = result.get("calculation_id")
-    if project.get('workflow') == 'efficient' and not calculation_id:
+    if (project.get('workflow') == 'efficient' or p.tool == 'export_chart') and not calculation_id:
         calculation_id = uid()
         execute('INSERT INTO calculations VALUES(?,?,?,?,?,?)',
                 (calculation_id, project_id, p.tool, json.dumps(p.args), json.dumps(result, ensure_ascii=False), now()))
@@ -1892,7 +1906,8 @@ def _execute_tool(project_id: str, p: ExecuteIn, project=None, execution_id=None
         **verification,
     }
     if project.get('workflow') == 'efficient':
-        schema = {**SCHEMAS, 'dwsim':DwsimInput, 'export_blender':BlenderInput, 'qelectrotech':QElectroTechInput}.get(p.tool)
+        schema = {**SCHEMAS, 'dwsim':DwsimInput, 'export_blender':BlenderInput, 'qelectrotech':QElectroTechInput,
+                  'export_chart':ChartInput}.get(p.tool)
         actual_request = schema.model_validate(p.args).model_dump(mode='json') if schema else p.args
         record.update(solved=result.get('solved'), basis_revisions=result.get('basis_revisions', {}),
                       execution_id=execution_id,
@@ -2356,7 +2371,7 @@ def bundle(project_id: str, p: BundleIn | None = None):
     for f in project.get('files', []):
         metadata = metadata_by_id.get(f.get('artifactId'), {})
         candidates.append({**{key: metadata[key] for key in
-            ('delivery_role', 'depends_on', 'relative_path', 'scene_group', 'scene_path', 'source') if key in metadata}, **f})
+            ('delivery_role', 'depends_on', 'relative_path', 'scene_group', 'scene_path', 'chart_group', 'source') if key in metadata}, **f})
     selection_project = {**project, 'files': candidates}
     try:
         packaged_files = delivery.select_files(selection_project, p.artifact_ids if p else None)
@@ -2385,6 +2400,8 @@ def bundle(project_id: str, p: BundleIn | None = None):
                     arcname = 'deliverables/'+artifact['registration_id']+'/'+efficiency.relative_path(artifact['relative_path'])
                 elif artifact.get('scene_group'):
                     arcname = 'scenes/'+efficiency.relative_path(artifact['scene_group'])+'/'+efficiency.relative_path(artifact['scene_path'])
+                elif artifact.get('chart_group'):
+                    arcname = 'charts/'+efficiency.relative_path(artifact['chart_group'])+'/'+efficiency.relative_path(artifact['relative_path'])
                 if arcname.casefold() in names:
                     raise HTTPException(409, '成果入包路径重复：'+arcname)
                 names.add(arcname.casefold())

@@ -2,9 +2,11 @@
 
 面向 Codex 的本地化工工程插件：技能负责工程流程，stdio MCP 连接本仓库的计算、证据、文档、工程对象、自动校核和成果打包能力。MCP 在进程内复用 HTTP 内核，不需要预先启动服务，也不占用 TCP 端口。
 
-当前版本 `0.6.0`，新增自动采集、来源组、批量成果登记与 SQLite 项目流程，支持 Blender 厂区三维演示。安装更新需在新 Codex 会话中加载；运行中的会话不会自动刷新。
+当前公开发行版为 `v0.6.0`，支持 Blender 厂区三维演示，包含来源组、批量成果登记与 SQLite 项目流程。更新安装后请开启新的 Codex 会话。
 
 开发版新增 [QElectroTech 仪表与电气接线](docs/qelectrotech.md)：同一 MCP 生成可编辑 QET 工程、连接表和 PDF/SVG，检查明确端子与导线；不替代电气选型或功能安全审核。
+
+开发版还可从表格、仿真结果和实验拟合记录生成 [科研图表](docs/charts.md)，支持 SVG、PDF 和 PNG。
 
 视觉标准化改进与公开竞赛/标准调研见[说明](docs/visual-standardization.md)：连续管道弯头、CAD线型/线宽及按图种检查规则。未完成能力统一维护在[插件缺陷待办](docs/plugin-backlog.md)。
 
@@ -59,6 +61,7 @@ codex plugin add chemellm@chemellm-local
 | 当前价格、更新、变更历史 | `chem_prices`、`chem_price_save`、`chem_price_history` |
 | 共享资料归档、读取、整理、检索、引用 | `chem_reference_import`、`chem_reference_read`、`chem_reference_save`、`chem_reference_search`、`chem_reference_use` |
 | 计算、证据、生成 | `chem_execute`、`chem_calculations` |
+| Vega-Lite 科研图表 | `chem_tools(tool="export_chart")`、`chem_execute(tool="export_chart", ...)` |
 | Blender 厂区演示 | `chem_tools(tool="export_blender")`、`chem_execute(tool="export_blender", ...)` |
 | 材料、成果文件、批量固定版本登记 | `chem_intake`、`chem_artifact`、`chem_artifacts_register` |
 | 自动校核、打包 | `chem_review`、`chem_bundle` |
@@ -78,6 +81,8 @@ codex plugin add chemellm@chemellm-local
 标准、手册及参考资料归档到 `data/references/` 跨项目复用。默认保存原件、读取相关部分并固定引用；整理稿按复用需要生成。图片可按页和区域直接固定版本及哈希，只有引用图中文字时才转录。用法见 [共享资料库说明](docs/references.md)。
 
 DWSIM 已通过本机 Automation3 接入。AI 可查询组分/物性包、创建或载入稳态流程、检查参数与单位、修改工况并求解，项目保存原始输入、完整结果、物流表和原生 `.dwxmz`，支持后续重算与成果打包。需要本机安装 Windows 版 DWSIM；动态及复杂反应模型需单独配置和验证。用法见 [DWSIM 接入说明](docs/dwsim.md)。
+
+`export_chart` 从项目 CSV/XLSX、DWSIM 扫描或实验拟合记录离线生成 SVG、PDF 和 PNG。图表规格、入图数值、源行或结果定位及哈希均可随选定图表打包。用法见 [科研图表](docs/charts.md)。
 
 对话中确实需要尚未安装的外部工具时，AI 会说明用途、安装理由、来源、目标位置和影响，询问是否安装；用户明确选择“是”后执行安装，检查可用性并继续原任务。当前内置 Windows 下 DWSIM、FreeCAD、Blender、LibreOffice 和 Cantera 的安装方案，其他工具由当前会话核对官方安装方式。检测和准备方案均不安装软件；拒绝或未回复时不安装。见 [按需安装说明](docs/dependencies.md)。
 
@@ -99,6 +104,7 @@ Blender 支持后台生成完整厂区演示，包含设备、管道、管廊、
 .\.venv\Scripts\python.exe -X utf8 scripts\test_efficiency.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_skill_efficiency.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_kernel.py
+.\.venv\Scripts\python.exe -X utf8 scripts\test_chart.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_codex_mcp.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_dependencies.py
 .\.venv\Scripts\python.exe -X utf8 scripts\test_blender.py

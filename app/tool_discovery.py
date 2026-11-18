@@ -27,7 +27,7 @@ def discover(k, tool=None, view=None, category=None, offset=0, limit=20):
     if offset < 0 or not 1 <= limit <= 100:
         raise HTTPException(422, 'offset/limit 无效')
     schemas = {**k.SCHEMAS, 'dwsim': k.DwsimInput, 'export_blender': k.BlenderInput,
-               'qelectrotech': k.QElectroTechInput}
+               'qelectrotech': k.QElectroTechInput, 'export_chart': k.ChartInput}
     executable = sorted((set(k.SCHEMAS) - {'ask_user', 'acceptance'}) | k.SPECIAL_TOOLS)
     descriptions = {item['id']: item for item in k.TOOLS}
     if tool is not None:
