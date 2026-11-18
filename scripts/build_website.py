@@ -13,7 +13,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 INSTALLER = f"ChemELLM-Codex-{VERSION}-windows-x64.zip"
-PUBLIC_FILES = ("index.html", "styles.css", "app.js", "favicon.svg", "robots.txt", "sitemap.xml",
+PUBLIC_FILES = ("index.html", "styles.css", "app.js", "theme.js", "favicon.svg", "robots.txt", "sitemap.xml",
                 "showcase.css", "showcase.js", "model-viewer.js", "pfd-viewer.js",
                 "showcase/fr2023/index.html", "showcase/fr2023/pfd.html", "showcase/tianzheng/index.html",
                 "showcase/assets.json")

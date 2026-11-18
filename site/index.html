@@ -3,30 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#155aa3">
+  <meta name="theme-color" content="#fafafa">
   <meta name="description" content="ChemELLM 是面向 Codex 的化工计算、设计与模拟插件。计算物性与反应，模拟工艺流程，估算设备与能耗，生成流程图、厂区三维和设计报告，比较方案经济性。下载 v0.6.0 Windows 安装包。">
   <meta property="og:type" content="website">
   <meta property="og:title" content="ChemELLM · 让化工想法，成为工程方案">
   <meta property="og:description" content="在 Codex 中计算物性、设计设备、模拟工艺流程。从技术构思到方案比较，生成流程图、三维模型与设计报告。">
   <meta property="og:url" content="https://chemellm.online/">
   <link rel="canonical" href="https://chemellm.online/">
-  <link rel="icon" href="/favicon.svg?v=20261115" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=20261116">
-  <link rel="stylesheet" href="/showcase.css?v=20261115">
-  <script src="/app.js?v=20261115" defer></script>
+  <link rel="icon" href="/favicon.svg?v=20261118" type="image/svg+xml">
+  <script src="/theme.js?v=20261118"></script>
+  <link rel="stylesheet" href="/styles.css?v=20261118">
+  <link rel="stylesheet" href="/showcase.css?v=20261118">
+  <script src="/app.js?v=20261118" defer></script>
   <title>ChemELLM · 让化工想法，成为工程方案</title>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到正文</a>
   <header class="site-header">
     <div class="container nav-shell">
-      <a class="brand" href="/" aria-label="ChemELLM 首页"><img src="/favicon.svg?v=20261115" width="34" height="34" alt=""><span>ChemELLM<span class="brand-dot">.</span></span></a>
-      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="navigation" aria-label="打开导航"><span></span><span></span></button>
+      <a class="brand" href="/" aria-label="ChemELLM 首页"><img src="/favicon.svg?v=20261118" width="34" height="34" alt=""><span>ChemELLM<span class="brand-dot">.</span></span></a>
       <nav id="navigation" aria-label="主导航">
         <a href="#capabilities">产品能力</a><a href="#showcase">成果展示</a><a href="#simulation">流程仿真</a><a href="#workflow">工作方式</a><a href="#start">安装指南</a>
         <a class="nav-source" href="https://github.com/HuoHaYo/chemellm-codex" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
         <a class="button button-small" href="#start">开始使用 <span aria-hidden="true">↗</span></a>
       </nav>
+      <div class="header-actions">
+        <div class="theme-switch" role="group" aria-label="页面主题" hidden><button type="button" data-theme-choice="light" aria-label="白色主题" aria-pressed="false">白</button><button type="button" data-theme-choice="dark" aria-label="黑色主题" aria-pressed="false">黑</button></div>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="navigation" aria-label="打开导航"><span></span><span></span></button>
+      </div>
     </div>
   </header>
 
@@ -48,7 +52,7 @@
           <div class="workspace">
             <div class="workspace-heading"><span class="workspace-icon" aria-hidden="true">⌘</span><div><strong>从工艺条件，到设计成果。</strong><span>设定条件 → 计算模拟 → 形成方案</span></div><span class="example-label">流程示意</span></div>
             <div class="flow-canvas" aria-hidden="true">
-              <svg class="flow-lines" viewBox="0 0 500 220" preserveAspectRatio="none" fill="none"><path d="M65 110H430" stroke="#155aa3" stroke-width="1.6"/><path d="M126 110V37H378V110M126 110V187H378V110" stroke="#92b7ce" stroke-width="1.3" stroke-dasharray="4 5"/><circle cx="126" cy="110" r="4" fill="#155aa3"/><circle cx="378" cy="110" r="4" fill="#187c5b"/></svg>
+              <svg class="flow-lines" viewBox="0 0 500 220" preserveAspectRatio="none" fill="none"><path d="M65 110H430" stroke="currentColor" stroke-width="1.6"/><path d="M126 110V37H378V110M126 110V187H378V110" stroke="currentColor" opacity=".55" stroke-width="1.3" stroke-dasharray="4 5"/><circle cx="126" cy="110" r="4" fill="currentColor"/><circle cx="378" cy="110" r="4" fill="currentColor"/></svg>
               <div class="flow-node node-input"><span class="flow-symbol">↗</span><small>工艺条件</small></div>
               <div class="flow-node node-column"><span class="column-symbol"><i></i><i></i><i></i></span><small>计算与模拟</small></div>
               <div class="flow-node node-output"><span class="flow-symbol">✓</span><small>设计成果</small></div>
@@ -57,7 +61,7 @@
             <div class="evidence-row"><span class="file-icon" aria-hidden="true">↳</span><span><strong>查看设备参数、物流与能耗</strong><small>设备数据表 / 物流表 / 工况图表</small></span><span class="record-tag">方案比较</span></div>
             <div class="file-row"><span><b class="file-type">SIM</b> 原生流程模型</span><span><b class="file-type">CSV</b> 工况比较表</span><span><b class="file-type">ZIP</b> 工程成果包</span></div>
           </div>
-          <div class="visual-footnote"><span class="crosshair" aria-hidden="true">+</span><span class="mono">CHEMICAL ENGINEERING, CONNECTED.</span><span class="crosshair" aria-hidden="true">+</span></div>
+          <div class="diagram-rule" aria-hidden="true"></div>
         </div>
       </div>
     </section>
@@ -68,12 +72,12 @@
       <div class="container">
         <div class="section-heading"><div><p class="eyebrow"><span></span> BUILT FOR ENGINEERING</p><h2>计算、设计、模拟，<br>推进你的化工方案。</h2></div><p class="section-intro">研究反应与分离，估算设备和能耗。<br>比较工艺条件，将结果变成图纸、模型与报告。</p></div>
         <div class="feature-grid">
-          <article class="feature"><div class="feature-top"><span class="feature-number">01 / COMPUTE</span><span class="feature-glyph" aria-hidden="true">ƒ</span></div><h3>物性与反应计算</h3><p>查询物性与水蒸汽性质，计算气液平衡和反应热；接入 Cantera，研究支持机理下的气相化学平衡与反应动力学。</p><span class="feature-caption">物性查询 · 相平衡 · 反应计算</span></article>
-          <article class="feature"><div class="feature-top"><span class="feature-number">02 / SIMULATE</span><span class="feature-glyph" aria-hidden="true">⇄</span></div><h3>工艺流程模拟</h3><p>接入 DWSIM 建立稳态流程，连接反应、闪蒸、精馏与循环单元；调整操作条件，比较物流组成、产量和冷热负荷。</p><span class="feature-caption">稳态流程 · 参数调整 · 多工况比较</span></article>
-          <article class="feature"><div class="feature-top"><span class="feature-number">03 / DESIGN</span><span class="feature-glyph" aria-hidden="true">≡</span></div><h3>设备与能量估算</h3><p>估算换热器面积、精馏理论级数、管路压降与泵功率；通过显热物流夹点分析，计算最小冷热公用工程需求。</p><span class="feature-caption">换热与精馏 · 管路计算 · 能耗分析</span></article>
-          <article class="feature"><div class="feature-top"><span class="feature-number">04 / VISUALIZE</span><span class="feature-glyph" aria-hidden="true">⌘</span></div><h3>工艺图纸与厂区三维</h3><p>生成 PFD 流程草图和设备数据表；用 Blender 表达设备、管道、管廊与建筑，导出三维模型及渲染图。</p><span class="feature-caption">流程图 · 设备数据表 · 三维演示</span></article>
-          <article class="feature"><div class="feature-top"><span class="feature-number">05 / EVALUATE</span><span class="feature-glyph" aria-hidden="true">¥</span></div><h3>经济评价与方案比较</h3><p>结合设备、原料及能源价格估算成本，计算税前净现值与回收期，分析收入和成本变化对方案经济性的影响。</p><span class="feature-caption">成本估算 · 净现值 · 敏感性分析</span></article>
-          <article class="feature feature-tint"><div class="feature-top"><span class="feature-number">06 / RESEARCH</span><span class="feature-glyph" aria-hidden="true">↗</span></div><h3>技术研究与报告生成</h3><p>检索论文与化学数据，读取技术文献、分析实验表格；生成计算报告和演示文稿，汇总图纸与模型成果。</p><span class="feature-caption">文献检索 · 数据拟合 · 文档生成</span></article>
+          <article class="feature"><h3>物性与反应计算</h3><p>查询物性与水蒸汽性质，计算气液平衡和反应热；接入 Cantera，研究支持机理下的气相化学平衡与反应动力学。</p><span class="feature-caption">物性查询 · 相平衡 · 反应计算</span></article>
+          <article class="feature"><h3>工艺流程模拟</h3><p>接入 DWSIM 建立稳态流程，连接反应、闪蒸、精馏与循环单元；调整操作条件，比较物流组成、产量和冷热负荷。</p><span class="feature-caption">稳态流程 · 参数调整 · 多工况比较</span></article>
+          <article class="feature"><h3>设备与能量估算</h3><p>估算换热器面积、精馏理论级数、管路压降与泵功率；通过显热物流夹点分析，计算最小冷热公用工程需求。</p><span class="feature-caption">换热与精馏 · 管路计算 · 能耗分析</span></article>
+          <article class="feature"><h3>工艺图纸与厂区三维</h3><p>生成 PFD 流程草图和设备数据表；用 Blender 表达设备、管道、管廊与建筑，导出三维模型及渲染图。</p><span class="feature-caption">流程图 · 设备数据表 · 三维演示</span></article>
+          <article class="feature"><h3>经济评价与方案比较</h3><p>结合设备、原料及能源价格估算成本，计算税前净现值与回收期，分析收入和成本变化对方案经济性的影响。</p><span class="feature-caption">成本估算 · 净现值 · 敏感性分析</span></article>
+          <article class="feature feature-tint"><h3>技术研究与报告生成</h3><p>检索论文与化学数据，读取技术文献、分析实验表格；生成计算报告和演示文稿，汇总图纸与模型成果。</p><span class="feature-caption">文献检索 · 数据拟合 · 文档生成</span></article>
         </div>
       </div>
     </section>
@@ -89,10 +93,10 @@
     <section class="simulation-section section" id="simulation"><div class="container">
       <div class="section-heading"><div><p class="eyebrow"><span></span> DWSIM / STEADY-STATE</p><h2>搭建工艺流程，<br>比较不同操作方案。</h2></div><div class="simulation-intro"><span class="version-label">稳态仿真与原生布局</span><p class="section-intro">改变温度、压力和进料条件。<br>计算分离效果、物流组成及公用工程负荷。</p></div></div>
       <div class="simulation-grid">
-        <article class="simulation-card"><span class="simulation-index">01 <i>BUILD</i></span><h3>创建与修改流程模型</h3><p>选择组分与物性方法，设置进料、设备连接及操作规格；自动分区或调整原生流程图布局，生成模型与预览。</p><span class="simulation-detail">支持 .dwxml / .dwxmz 原生文件</span></article>
-        <article class="simulation-card"><span class="simulation-index">02 <i>SOLVE</i></span><h3>求解物流与热量负荷</h3><p>运行支持单元的稳态求解，读取流量、组成、温度、压力和能量结果；独立检查质量、组分及能量守恒。</p><span class="simulation-detail">输出物流表与单元计算结果</span></article>
-        <article class="simulation-card"><span class="simulation-index">03 <i>COMPARE</i></span><h3>比较多个操作工况</h3><p>串行运行最多 50 个工况，比较关键结果并生成数据表与图表；支持进度查看、取消和续算。</p><span class="simulation-detail">用于参数研究与可行工况比较</span></article>
-        <article class="simulation-card"><span class="simulation-index">04 <i>CONNECT</i></span><h3>将流程结果用于设备估算</h3><p>选取校核通过的流量、温压与负荷，关联到工程对象，继续进行设备计算并生成设备数据表。</p><span class="simulation-detail">操作条件需另行转换为机械设计条件</span></article>
+        <article class="simulation-card"><h3>创建与修改流程模型</h3><p>选择组分与物性方法，设置进料、设备连接及操作规格；自动分区或调整原生流程图布局，生成模型与预览。</p><span class="simulation-detail">支持 .dwxml / .dwxmz 原生文件</span></article>
+        <article class="simulation-card"><h3>求解物流与热量负荷</h3><p>运行支持单元的稳态求解，读取流量、组成、温度、压力和能量结果；独立检查质量、组分及能量守恒。</p><span class="simulation-detail">输出物流表与单元计算结果</span></article>
+        <article class="simulation-card"><h3>比较多个操作工况</h3><p>串行运行最多 50 个工况，比较关键结果并生成数据表与图表；支持进度查看、取消和续算。</p><span class="simulation-detail">用于参数研究与可行工况比较</span></article>
+        <article class="simulation-card"><h3>将流程结果用于设备估算</h3><p>选取校核通过的流量、温压与负荷，关联到工程对象，继续进行设备计算并生成设备数据表。</p><span class="simulation-detail">操作条件需另行转换为机械设计条件</span></article>
       </div>
       <div class="simulation-bottom"><p><span class="status-dot"></span> 面向 Windows / DWSIM 稳态流程，需单独安装 DWSIM。动态仿真与动力学 CSTR/PFR 不在当前支持范围。</p><a class="text-link" href="https://github.com/HuoHaYo/chemellm-codex/blob/main/docs/dwsim.md" target="_blank" rel="noopener noreferrer">查看接入与验证说明 <span aria-hidden="true">↗</span></a></div>
     </div></section>
@@ -100,10 +104,10 @@
     <section class="simulation-section section" id="updates"><div class="container">
       <div class="section-heading"><div><p class="eyebrow"><span></span> WHAT’S NEW / v0.6.0</p><h2>从参数试算，<br>推进到三维方案。</h2></div><div class="simulation-intro"><span class="version-label">v0.6.0 新增能力</span><p class="section-intro">在同一个项目中选择设计条件、<br>开展试算，组合模型与设计成果。</p></div></div>
       <div class="simulation-grid">
-        <article class="simulation-card"><span class="simulation-index">01 <i>START</i></span><h3>从一个想法开始试算</h3><p>说明要研究的工艺、已有条件与目标，建立项目后即可运行计算；根据结果调整方案，再完善设计条件。</p><span class="simulation-detail">支持探索试算与后续设计衔接</span></article>
-        <article class="simulation-card"><span class="simulation-index">02 <i>BASIS</i></span><h3>选择设计参数与条件</h3><p>将用户数据、文献数据或估算值用于设备与工艺计算；统一处理单位和适用条件，参数不足时明确假设。</p><span class="simulation-detail">资料库支持检索原文、表格与图像</span></article>
-        <article class="simulation-card"><span class="simulation-index">03 <i>VISUALIZE</i></span><h3>用三维演示表达厂区方案</h3><p>调用本机 Blender 生成设备、管道、管廊和建筑，导出 blend、GLB 与 PNG。结合 FreeCAD 可导入 CAD 外观。</p><span class="simulation-detail">需另装外部软件；不替代工程设计审核</span></article>
-        <article class="simulation-card"><span class="simulation-index">04 <i>COLLECT</i></span><h3>汇总模型、图纸与报告</h3><p>将外部生成的模型、网页、图像和配套资源纳入项目，组合为可浏览、下载和继续编辑的成果。</p><span class="simulation-detail">支持多文件模型与网页资源</span></article>
+        <article class="simulation-card"><h3>从一个想法开始试算</h3><p>说明要研究的工艺、已有条件与目标，建立项目后即可运行计算；根据结果调整方案，再完善设计条件。</p><span class="simulation-detail">支持探索试算与后续设计衔接</span></article>
+        <article class="simulation-card"><h3>选择设计参数与条件</h3><p>将用户数据、文献数据或估算值用于设备与工艺计算；统一处理单位和适用条件，参数不足时明确假设。</p><span class="simulation-detail">资料库支持检索原文、表格与图像</span></article>
+        <article class="simulation-card"><h3>用三维演示表达厂区方案</h3><p>调用本机 Blender 生成设备、管道、管廊和建筑，导出 blend、GLB 与 PNG。结合 FreeCAD 可导入 CAD 外观。</p><span class="simulation-detail">需另装外部软件；不替代工程设计审核</span></article>
+        <article class="simulation-card"><h3>汇总模型、图纸与报告</h3><p>将外部生成的模型、网页、图像和配套资源纳入项目，组合为可浏览、下载和继续编辑的成果。</p><span class="simulation-detail">支持多文件模型与网页资源</span></article>
       </div>
       <div class="simulation-bottom"><p><span class="status-dot"></span> 在本地 Codex 中使用；Blender、DWSIM 等专业软件按任务需要单独安装。</p><a class="text-link" href="https://github.com/HuoHaYo/chemellm-codex/releases/tag/v0.6.0" target="_blank" rel="noopener noreferrer">查看完整更新说明 <span aria-hidden="true">↗</span></a></div>
     </div></section>
@@ -138,6 +142,6 @@
     </div></div></section>
   </main>
 
-  <footer><div class="container"><div class="footer-top"><a class="brand" href="/"><img src="/favicon.svg?v=20261115" width="28" height="28" alt=""><span>ChemELLM<span class="brand-dot">.</span></span></a><p>让化工想法，成为工程方案。</p><a href="https://github.com/HuoHaYo/chemellm-codex/issues" target="_blank" rel="noopener noreferrer">反馈与交流 <span aria-hidden="true">↗</span></a></div><div class="footer-bottom"><span>© 2026 ChemELLM · 面向 Codex 的化工计算、设计与模拟插件</span><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">冀ICP备2026048199号-1</a></div></div></footer>
+  <footer><div class="container"><div class="footer-top"><a class="brand" href="/"><img src="/favicon.svg?v=20261118" width="28" height="28" alt=""><span>ChemELLM<span class="brand-dot">.</span></span></a><p>让化工想法，成为工程方案。</p><a href="https://github.com/HuoHaYo/chemellm-codex/issues" target="_blank" rel="noopener noreferrer">反馈与交流 <span aria-hidden="true">↗</span></a></div><div class="footer-bottom"><span>© 2026 ChemELLM · 面向 Codex 的化工计算、设计与模拟插件</span><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">冀ICP备2026048199号-1</a></div></div></footer>
 </body>
 </html>

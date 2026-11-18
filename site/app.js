@@ -22,7 +22,7 @@ document.addEventListener('keydown', event => {
     menuButton.focus();
   }
 });
-window.matchMedia('(min-width: 561px)').addEventListener('change', closeMenu);
+window.matchMedia('(max-width: 760px)').addEventListener('change', closeMenu);
 
 const copyButton = document.querySelector('#copy-prompt');
 const copyStatus = document.querySelector('#copy-status');
