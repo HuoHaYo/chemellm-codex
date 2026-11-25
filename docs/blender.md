@@ -26,7 +26,7 @@
 
 ## 环境与 CAD
 
-Blender 使用 `BLENDER_HOME`（安装目录或可执行文件）、PATH、Windows 常见安装目录以及 macOS/Linux 标准位置发现。要求 Blender 4.1+ 且后台、glTF、Eevee 能力检测成功；本次基准环境为 4.1.1。未验证的其他版本应执行本仓库专项测试。
+Blender 使用 `BLENDER_HOME`（安装目录或可执行文件）、PATH、Windows 常见安装目录以及 macOS/Linux 标准位置发现。要求 Blender 4.1+ 且后台、glTF、Eevee 能力检测成功；已在 Windows 上验证 4.1.1 和 5.3.0。其他版本可先执行本仓库专项测试。
 
 CAD 导入另需现有 FreeCADCmd。先把文件放入本仓库或当前数据目录，提供 `kind="cad"` 和 `path`；原件按导出保存副本与哈希。FreeCAD 在独立配置下提取静态面几何，保留组件名称和内部位置，采用统一演示材质。仅参数化场景无需 FreeCAD。支持中文、空格路径；不修改源文件、不执行源文档的参数复算。
 

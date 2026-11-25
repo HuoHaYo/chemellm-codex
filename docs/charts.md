@@ -57,7 +57,7 @@ DWSIM 扫描结束后，用所保存的任务 ID 与指标 key 出图。图的�
 | `chart-data.json` | 实际入图数据，附源行号、结果位置或工况状态 |
 | `chart-source.json` | 原始来源及哈希、轴单位、排除理由、渲染版本、字体和成果哈希 |
 
-使用 Windows 锁文件中的 `vl-convert-python==1.9.0.post1` 与 Vega-Lite 5.21。对照来源清单准备本机字体。中文优先使用微软雅黑，缺字时按本机可用字体回退。PDF 成果包含实际字体子集，SVG 的可编辑文字随查看器选用本机字体。
+使用 Windows 锁文件中的 `vl-convert-python==1.9.0.post1`，新图默认 Vega-Lite 6.4；需要旧规格时传 `"vega_lite_version": "5.21"`。离线重绘以归档清单中的版本为准。中文优先使用微软雅黑，缺字时按本机可用字体回退。PDF 成果包含实际字体子集，SVG 的可编辑文字随查看器选用本机字体。
 
 在解包后的图表目录运行以下 Python 代码，即可重绘三种格式。
 
@@ -67,7 +67,8 @@ from pathlib import Path
 import vl_convert as vl
 
 spec = json.loads(Path("chart.vl.json").read_text(encoding="utf-8"))
-options = {"vl_version": "5.21", "allowed_base_urls": []}
+manifest = json.loads(Path("chart-source.json").read_text(encoding="utf-8"))
+options = {"vl_version": manifest["renderer"]["vega_lite"], "allowed_base_urls": []}
 Path("replay.svg").write_text(vl.vegalite_to_svg(spec, **options), encoding="utf-8")
 Path("replay.pdf").write_bytes(vl.vegalite_to_pdf(spec, **options))
 Path("replay.png").write_bytes(vl.vegalite_to_png(spec, **options))

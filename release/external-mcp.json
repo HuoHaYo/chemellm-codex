@@ -1,0 +1,32 @@
+{
+  "blender": {
+    "version": "1.0.3",
+    "git": "https://projects.blender.org/lab/blender_mcp.git",
+    "ref": "v1.0.3",
+    "commit": "2cea8d566dde07fbac28a61d698909d69724e853"
+  },
+  "freecad": {
+    "version": "0.1.30",
+    "url": "https://api.github.com/repos/CREATeNG/freecad-mcp-bridge/zipball/v0.1.30",
+    "sha256": "67f10bdfc7253f9db607a07ba0f2fb741c2557c90ffb0a37da556111b28bfffb"
+  },
+  "vega": {
+    "version": "0.4.0",
+    "url": "https://api.github.com/repos/hydrosquall/vega-mcp-server/releases/assets/399478780?download=1",
+    "sha256": "afd4dbcb9cfbcba00c80013e00e161964747e475343b2900a8459d0f202cf21d"
+  },
+  "qet": {
+    "version": "0.200.1-ec35babf6",
+    "url": "https://api.github.com/repos/qelectrotech/qelectrotech-source-mirror/contents/misc/qet-mcp/qet_mcp.py?ref=ec35babf6c532698fb66565fff3ea7f40c771802",
+    "sha256": "c84b5e0ae62f6d9486946abfd5906176be2132231aa377cedfb96ba67dc6e303",
+    "windows_asset": {
+      "version": "0.200.1",
+      "url": "https://api.github.com/repos/qelectrotech/qelectrotech-source-mirror/releases/assets/787593334?download=1",
+      "sha256": "97c0fd6f5fa454edd18564a48bc876737277b807babef88f145561f859446da3"
+    }
+  },
+  "dwsim": {
+    "upstream_version": "10.3.0",
+    "upstream": "https://github.com/DanWBR/dwsim10/releases/tag/v10.3.0"
+  }
+}

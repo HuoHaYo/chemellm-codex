@@ -21,7 +21,7 @@ def previous_values(arguments, flag):
     return values
 
 
-def generate(output: Path, data_root: Path | None = None, allowed_roots: list[Path] | None = None):
+def generate(output: Path, data_root: Path | None = None, allowed_roots: list[Path] | None = None, *, write=True):
     from chemellm_codex import skill_fingerprint
     previous = json.loads(output.read_text(encoding='utf-8')) if output.exists() else {}
     old_entry = previous.get('mcpServers', {}).get('chemellm', {})
@@ -39,8 +39,11 @@ def generate(output: Path, data_root: Path | None = None, allowed_roots: list[Pa
              'startup_timeout_sec': old_entry.get('startup_timeout_sec', 60),
              'tool_timeout_sec': old_entry.get('tool_timeout_sec', 600)}
     previous.setdefault('mcpServers', {})['chemellm'] = entry
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(previous, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+    if write:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        pending = output.with_suffix('.pending')
+        pending.write_text(json.dumps(previous, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+        pending.replace(output)
     return previous
 
 

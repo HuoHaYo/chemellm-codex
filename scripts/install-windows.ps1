@@ -139,6 +139,7 @@ try {
     Write-Host "`nInstalled successfully. Restart Codex and open a new chat."
     Write-Host "Keep this folder in place. Your data is stored under: $(Join-Path $root 'data')"
     Write-Host 'Try: Use ChemELLM to calculate water properties and generate a Markdown report.'
+    Write-Host 'Optional engineering MCPs: run EXTERNAL-MCP.cmd, then rerun INSTALL.cmd to refresh the plugin.'
 } catch {
     Write-Host "`nInstallation failed: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host 'Check your network / proxy, keep the complete extracted folder, and rerun INSTALL.cmd.'

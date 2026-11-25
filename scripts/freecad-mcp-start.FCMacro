@@ -1,0 +1,24 @@
+"""Start the optional MCP Bridge UI in ChemELLM's separate FreeCAD profile."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+import FreeCAD as App
+
+support = Path(os.environ["CHEMELLM_MCP_RUNTIME"])
+addon = support / "freecad"
+sys.path.insert(0, str(addon))
+import freecad
+freecad.__path__ = [str(addon / "freecad"), *freecad.__path__]
+from freecad.mcp_bridge import config, init_gui
+
+python = os.environ["CHEMELLM_MCP_PYTHON"]
+script = os.environ["CHEMELLM_MCP_SETUP"]
+token = subprocess.check_output(
+    [python, "-X", "utf8", script, "--freecad-pair"],
+    text=True, stdin=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW,
+    timeout=20).strip()
+config.set_pasted_token(token)
+del token
+App.saveParameter()
+App.Console.PrintMessage("ChemELLM FreeCAD MCP Bridge is ready. Enable MCP in the status bar when needed.\n")

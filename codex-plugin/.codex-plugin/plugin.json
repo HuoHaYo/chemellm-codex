@@ -1,6 +1,6 @@
 {
   "name": "chemellm",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Local chemical-engineering calculations, evidence, engineering review and delivery bundles for Codex.",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json"

@@ -100,10 +100,12 @@ def pdf_font_names(content):
     return sorted({str(name).lstrip("/").split("+", 1)[-1] for name in base_fonts if name})
 
 
-def render(spec, requested):
+def render(spec, requested, *, vega_lite_version=None):
     import vl_convert
 
-    options = {"vl_version": VEGA_LITE_VERSION, "allowed_base_urls": []}
+    if vega_lite_version is None:
+        vega_lite_version = "5.21" if spec.get("$schema", "").endswith("/v5.json") else VEGA_LITE_VERSION
+    options = {"vl_version": vega_lite_version, "allowed_base_urls": []}
     functions = {"svg": vl_convert.vegalite_to_svg, "pdf": vl_convert.vegalite_to_pdf,
                  "png": vl_convert.vegalite_to_png}
     rendered = {}
@@ -137,14 +139,16 @@ def export_chart(project_id, request, artifacts_root, *, study_path=None):
         import vl_convert
     except ImportError as exc:
         raise RuntimeError("缺少图表渲染器，请按 ChemELLM 的锁定依赖更新插件环境") from exc
-    if VEGA_LITE_VERSION not in vl_convert.get_vegalite_versions():
-        raise RuntimeError(f"渲染器缺少 Vega-Lite {VEGA_LITE_VERSION}，请检查锁定依赖")
-    spec = make_spec(request.title, body, data, notes, "")
+    vega_lite_version = request.vega_lite_version
+    if vega_lite_version not in vl_convert.get_vegalite_versions():
+        raise RuntimeError(f"渲染器缺少 Vega-Lite {vega_lite_version}，请检查锁定依赖")
+    spec = make_spec(request.title, body, data, notes, "", vega_lite_version)
     font = figure_font(spec)
     spec["config"]["font"] = font["family"]
-    renderer = {"vl_convert_python": version("vl-convert-python"), "vega_lite": VEGA_LITE_VERSION, "font": font}
+    renderer = {"vl_convert_python": version("vl-convert-python"), "vega_lite": vega_lite_version, "font": font}
     files = {"chart.vl.json": json_bytes(spec), "chart-data.json": json_bytes(data)}
-    for kind, output in render(spec, list(dict.fromkeys([*request.formats, "png"]))).items():
+    for kind, output in render(spec, list(dict.fromkeys([*request.formats, "png"])),
+                               vega_lite_version=vega_lite_version).items():
         files[f"chart.{kind}"] = output
     if "chart.pdf" in files:
         renderer["pdf_fonts"] = pdf_font_names(files["chart.pdf"])

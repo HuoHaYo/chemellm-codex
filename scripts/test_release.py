@@ -41,6 +41,10 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(len(manifest['skills']),5)
                 self.assertIn(root+'app/project_store.py',archive.namelist())
                 self.assertIn(root+'kernel/efficient.py',archive.namelist())
+                for required in ('EXTERNAL-MCP.cmd', 'scripts/setup-external-mcp.py',
+                                 'chemellm_codex/dwsim_mcp.py', 'release/external-mcp.json',
+                                 'docs/external-mcp.md'):
+                    self.assertIn(root + required, archive.namelist())
                 self.assertEqual(len(manifest["files"]) + 1, len(archive.namelist()))
                 for entry in manifest["files"]:
                     content = archive.read(root + entry["path"])

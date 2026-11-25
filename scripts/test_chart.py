@@ -70,7 +70,8 @@ class ChartTests(unittest.TestCase):
         manifest = json.loads(content["chart-source.json"])
         self.assertEqual(manifest["source"]["sha256"], hashlib.sha256(csv).hexdigest())
         self.assertEqual(manifest["source"]["excluded_rows"][0]["source_row"], 4)
-        self.assertEqual(manifest["renderer"]["vega_lite"], "5.21")
+        self.assertEqual(manifest["renderer"]["vega_lite"], "6.4")
+        self.assertTrue(spec["$schema"].endswith("/v6.json"))
         for text in ["温度与响应 CO₂", "温度 [°C]", "响应 [μmol·m⁻²]"]:
             self.assertIn(text, content["chart.svg"].decode())
         self.assertEqual(len(PdfReader(io.BytesIO(content["chart.pdf"])).pages), 1)
@@ -99,12 +100,17 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         cid = response.json()["calculationId"]
         _, content = self.chart({"mode": "fit", "title": "表格拟合", "calculation_id": cid,
-                                 "model": "linear", "formats": ["svg"]})
+                                 "model": "linear", "formats": ["svg"], "vega_lite_version": "5.21"})
         data = json.loads(content["chart-data.json"])
         self.assertEqual([row["source_row"] for row in data["observations"]], [2, 3, 5, 6, 7])
         self.assertEqual(data["observations"][2]["result_path"], "/fits/0/observations/2")
         source = json.loads(content["chart-source.json"])["source"]
         self.assertEqual(source["dataset"]["artifact_id"], aid)
+        manifest = json.loads(content["chart-source.json"])
+        self.assertEqual(manifest["renderer"]["vega_lite"], "5.21")
+        spec = json.loads(content["chart.vl.json"])
+        self.assertTrue(spec["$schema"].endswith("/v5.json"))
+        self.assertEqual(chart_export.render(spec, ["svg"])["svg"], content["chart.svg"])
 
     def test_xlsx_grouped_bar_and_invalid_sources(self):
         def workbook(value, group="A"):

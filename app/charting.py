@@ -14,7 +14,8 @@ from app.dwsim_workflows import Metric, metric_value, resolve
 from app.schemas import Inputs
 from app.tabular import numeric_column, read_table
 
-VEGA_LITE_VERSION = "5.21"
+VEGA_LITE_VERSION = "6.4"
+ChartVersion = Literal["5.21", "6.4"]
 FORMATS = ("svg", "pdf", "png")
 FORMAT = Literal["svg", "pdf", "png"]
 PALETTE = ["#176589", "#ad541b", "#227555", "#833d75", "#5d55a3", "#77641a"]
@@ -23,6 +24,7 @@ PALETTE = ["#176589", "#ad541b", "#227555", "#833d75", "#5d55a3", "#77641a"]
 class ChartOptions(Inputs):
     title: str = Field(min_length=1, max_length=160)
     formats: list[FORMAT] = Field(default_factory=lambda: list(FORMATS), min_length=1, max_length=3)
+    vega_lite_version: ChartVersion = Field(default=VEGA_LITE_VERSION, description="默认 6.4；需要兼容旧规格时选择 5.21")
 
     @model_validator(mode="after")
     def check_formats(self):
@@ -321,8 +323,9 @@ def fit_chart(project_id, request):
         {"observations": observations, "curve": curve, "lines": lines, "bands": bands}, provenance, notes
 
 
-def make_spec(title, body, data, notes, font):
-    return {"$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+def make_spec(title, body, data, notes, font, vega_lite_version=VEGA_LITE_VERSION):
+    major = vega_lite_version.split(".", 1)[0]
+    return {"$schema": f"https://vega.github.io/schema/vega-lite/v{major}.json",
             "datasets": data, "title": {"text": title, "subtitle": notes, "anchor": "start", "offset": 18},
             "padding": 16, "background": "white", "config": {
                 "font": font, "view": {"stroke": None}, "range": {"category": PALETTE},

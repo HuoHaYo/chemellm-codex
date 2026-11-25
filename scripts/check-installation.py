@@ -31,7 +31,8 @@ def validate_skill_tree(plugin_root: Path, expected: str, expected_set: str):
 
 
 def validate_configuration(config_path, plugin_root=None, source_only=False):
-    config = json.loads(config_path.read_text(encoding='utf-8'))['mcpServers']['chemellm']
+    configured = json.loads(config_path.read_text(encoding='utf-8'))['mcpServers']
+    config = configured['chemellm']
     def flag(name):
         args = config['args']
         return next((args[i+1] for i in range(len(args)-1) if args[i] == name), '')
@@ -46,8 +47,8 @@ def validate_configuration(config_path, plugin_root=None, source_only=False):
                 raise ValueError('无法唯一定位实际插件缓存；请用 --plugin-root 指定，或安装前用 --source-only')
             plugin_root = candidates[0]
         validate_skill_tree(plugin_root, expected, expected_set)
-        cached = json.loads((plugin_root/'.mcp.json').read_text(encoding='utf-8'))['mcpServers']['chemellm']
-        if cached != config:
+        cached = json.loads((plugin_root/'.mcp.json').read_text(encoding='utf-8'))['mcpServers']
+        if cached != configured:
             raise ValueError('已安装缓存的启动配置与待检查配置不同：'+str(plugin_root))
     return config
 
@@ -81,6 +82,32 @@ async def check(config_path: Path, plugin_root: Path | None = None, source_only=
                 model_schema=next(tool for tool in tools.tools if tool.name=='chem_dwsim').inputSchema
                 assert 'check' in str(model_schema), 'DWSIM preflight action missing'
                 print(f"MCP startup OK; {len(names)} tools; isolated storage, workflow and skill/kernel pairing OK.")
+
+    if not source_only:
+        expected = {
+            'chemellm-blender': {'get_objects_summary', 'execute_blender_code'},
+            'chemellm-freecad': {'execute_python', 'get_output_page'},
+            'chemellm-vega': {'show_vegalite_chart'},
+            'chemellm-qet': {'qet_project_info', 'qet_check'},
+            'chemellm-dwsim': {'dwsim_engine_status', 'dwsim_create'},
+        }
+        entries = json.loads(config_path.read_text(encoding='utf-8'))['mcpServers']
+        for name in expected.keys() & entries.keys():
+            entry = entries[name]
+            params = StdioServerParameters(command=entry['command'], args=entry.get('args', []),
+                cwd=entry.get('cwd'), env=entry.get('env', {}))
+
+            async def discover():
+                async with stdio_client(params) as (reader, writer), ClientSession(reader, writer) as session:
+                    await session.initialize()
+                    return {tool.name for tool in (await session.list_tools()).tools}
+
+            names = await asyncio.wait_for(discover(), timeout=60)
+            # An explicitly supplied native DWSIM MCP has its own tool catalog.
+            native_dwsim = name == 'chemellm-dwsim' and 'chemellm_codex.dwsim_mcp' not in entry.get('args', [])
+            if not names or (not native_dwsim and not expected[name] <= names):
+                raise RuntimeError(f'Optional MCP {name} returned an unexpected tool catalog.')
+            print(f"Optional MCP {name}: {len(names)} tools discovered.")
 
 
 def main() -> None:

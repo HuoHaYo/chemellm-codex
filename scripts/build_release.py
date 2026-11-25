@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from chemellm_codex import skill_fingerprint, skill_inventory
 DIRECTORIES = {"app", "kernel", "chemellm_codex", "codex-plugin", "scripts", "release", ".agents", "docs"}
-FILES = {"README.md", "INSTALL.cmd", "CHECK.cmd", "安装使用说明.md", "pyproject.toml", "AGENTS.md"}
+FILES = {"README.md", "INSTALL.cmd", "CHECK.cmd", "EXTERNAL-MCP.cmd", "安装使用说明.md", "pyproject.toml", "AGENTS.md"}
 # Explicit source additions make review builds complete before staging, without
 # sweeping arbitrary untracked documents or user material into a release.
 SOURCE_ADDITIONS = {
@@ -38,6 +38,9 @@ SOURCE_ADDITIONS = {
     'codex-plugin/skills/chemellm-engineering/references/references.md',
     'docs/blender.md', 'docs/efficiency-v2.md', 'docs/skill-efficiency.md',
     'docs/examples/blender-plant.json', 'release/notes-v0.6.0.md',
+    'EXTERNAL-MCP.cmd', 'chemellm_codex/dwsim_mcp.py', 'scripts/setup-external-mcp.py',
+    'scripts/freecad-mcp-start.FCMacro', 'scripts/test_external_mcp.py',
+    'release/external-mcp.json', 'docs/external-mcp.md', 'release/notes-v0.7.2.md',
 }
 # Only the five reviewed skill trees; no arbitrary untracked files or user assets.
 SKILL_NAMES = {'chemellm-engineering', 'chemellm-dwsim', 'chemellm-3d', 'chemellm-references', 'chemellm-costing'}

@@ -2,7 +2,7 @@
 
 面向 Codex 的本地化工工程插件：技能负责工程流程，stdio MCP 连接本仓库的计算、证据、文档、工程对象、自动校核和成果打包能力。MCP 在进程内复用 HTTP 内核，不需要预先启动服务，也不占用 TCP 端口。
 
-当前发行版为 `v0.7.1`。更新安装后请开启新的 Codex 会话。
+当前源码版本为 `v0.7.2`。更新安装后请开启新的 Codex 会话。
 
 使用 [QElectroTech 仪表与电气接线](docs/qelectrotech.md) 可生成可编辑 QET 工程、连接表和 PDF/SVG，检查给定端子与导线。
 
@@ -16,7 +16,9 @@
 
 ## 用户安装
 
-从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载 `ChemELLM-Codex-0.7.1-windows-x64.zip`，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
+从 [GitHub Releases](https://github.com/HuoHaYo/chemellm-codex/releases/latest) 下载已发布的 Windows x64 ZIP，完整解压到长期保留的可写目录，双击 **`INSTALL.cmd`**。安装器自动准备独立 Python 3.12、安装锁定版本的依赖、检查 MCP，并注册到 Codex。无需自行安装 Python 或 Git，也无需管理员权限；首次安装需要联网访问 GitHub 和 PyPI。
+
+从 0.7.2 开始，可双击 **`EXTERNAL-MCP.cmd`** 按需启用 Blender、FreeCAD、DWSIM、Vega 和 QElectroTech 的独立 MCP。启用后重跑安装器刷新插件缓存。具体功能、前置条件及原生界面启动见 [外部 MCP 接入说明](docs/external-mcp.md)。
 
 先安装并登录支持插件的 Codex 桌面版或 CLI。看到 `Installed successfully` 后重启 Codex、开启新会话，即可提出化工任务。双击 **`CHECK.cmd`** 可再次检查运行环境。项目数据保存到解压目录 `data/`，快照在 `.chem/`；安装完成后保留整个目录。
 
