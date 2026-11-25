@@ -6,7 +6,7 @@
 
 1. 下载本页附件 **ChemELLM-Codex-0.3.0-windows-x64.zip** 并完整解压到可长期保留的可写目录。
 2. 双击 **INSTALL.cmd**，自动准备独立 Python 3.12、安装经过哈希校验的锁定依赖、检查 MCP，并登记到 Codex。
-3. 看到 `Installed successfully` 后重启 Codex、新建会话。试用：“使用 ChemELLM 建立水物性计算项目，记录依据，生成 Markdown 报告并打包。”
+3. 看到 `Installed successfully` 后重启 Codex、新建会话。试用“请用本地 ChemELLM Codex 插件建立水物性计算项目，记录依据，生成 Markdown 报告并打包。”
 
 先安装并登录支持插件的 Codex 桌面版或 CLI。无需自行安装 Python、Git，也无需管理员权限。首次安装需联网访问 GitHub 和 PyPI；双击 **CHECK.cmd** 可检查环境。
 

@@ -2,7 +2,7 @@
 
 面向 Codex 的本地化工工程插件：技能负责工程流程，stdio MCP 连接本仓库的计算、证据、文档、工程对象、自动校核和成果打包能力。MCP 在进程内复用 HTTP 内核，不需要预先启动服务，也不占用 TCP 端口。
 
-当前源码版本为 `v0.7.2`。更新安装后请开启新的 Codex 会话。
+当前源码版本为 `v0.7.3`。更新安装后请开启新的 Codex 会话。
 
 使用 [QElectroTech 仪表与电气接线](docs/qelectrotech.md) 可生成可编辑 QET 工程、连接表和 PDF/SVG，检查给定端子与导线。
 
@@ -47,7 +47,7 @@ codex plugin add chemellm@chemellm-local
 
 `chem_health` 保留公共技能的 `skillPairing`，另用 `skillSetPairing` 和逐技能指纹核对整包。配置生成时固定期望指纹，专业参考文件变化也会被检测。安装前用 `scripts/check-installation.py --source-only` 验证源码；安装后使用默认检查或 `--plugin-root <实际插件缓存目录>`，独立核对缓存、源码及启动配置。源码检查不能证明缓存已刷新；运行会话需在统一刷新后重新连接。
 
-新会话可请求：“使用 ChemELLM 建立水物性计算项目，记录依据、生成 Markdown 报告。”单份成果直接提供文件；用户要求压缩包，或多文件需要整体下载、转交时才打包。FreeCAD、Blender、LibreOffice、DWSIM、Cantera 为按需使用的可选软件或依赖；相应工具的可用性取决于本机环境，MCP 接入不代表已验证全部专业模型或外部软件。
+新会话可请求：“请调用本地 ChemELLM Codex 插件的 `chem_health` 确认连接，再建立水物性计算项目，记录依据并生成 Markdown 报告。”插件标识为 `chemellm@chemellm-local`，工具由 `chemellm` MCP 提供。单份成果直接提供文件；用户要求压缩包，或多文件需要整体下载、转交时才打包。FreeCAD、Blender、LibreOffice、DWSIM、Cantera 为按需使用的可选软件或依赖；相应工具的可用性取决于本机环境，MCP 接入不代表已验证全部专业模型或外部软件。
 
 ## MCP 接口
 

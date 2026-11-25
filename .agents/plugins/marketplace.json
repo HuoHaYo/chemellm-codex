@@ -1,6 +1,6 @@
 {
   "name": "chemellm-local",
-  "interface": {"displayName": "ChemELLM Local"},
+  "interface": {"displayName": "ChemELLM Codex"},
   "plugins": [
     {
       "name": "chemellm",

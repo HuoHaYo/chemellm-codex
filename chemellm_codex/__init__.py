@@ -1,6 +1,6 @@
 """Codex MCP adapter for the independent ChemELLM kernel."""
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
 
 
 def skill_fingerprint(folder):

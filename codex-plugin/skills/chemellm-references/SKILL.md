@@ -1,9 +1,9 @@
 ---
 name: chemellm-references
-description: 用 ChemELLM 检索、归档和引用化工标准、工程文献、原件、图表及扫描页。需要可追溯工程资料时使用；普通文件阅读不必建立工程资料库。
+description: 用本地 ChemELLM Codex 插件检索、归档和引用化工标准、工程文献、原件、图表及扫描页。需要可追溯工程资料时使用。普通文件阅读不必建立工程资料库。
 ---
 
-沿用已有项目 ID；独立资料任务可 `chem_project_init(task_kind="research")`，不建立工艺对象计划。按[原件与引用](references/references.md)保存原件→读相关部分→固定引用；有复用需要才整理，不先改写全文。
+用本插件的 `chemellm` MCP 沿用已有项目 ID。独立资料任务可 `chem_project_init(task_kind="research")`，不建立工艺对象计划。按[原件与引用](references/references.md)保存原件→读相关部分→固定引用。有复用需要才整理，不先改写全文。
 
 已知工具直接调用 `chem_reference_*`；检索参数用 `chem_tools(tool=...)`，用途不明用 `view="summary",category="references"`。只读相关页或段落，保留版本、来源及适用条件。
 

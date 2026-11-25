@@ -66,7 +66,7 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
                 return ListRootsResult(roots=[Root(uri=(self.folder/'client root').as_uri())])
             self.session = await self.stack.enter_async_context(ClientSession(reader, writer,
                 list_roots_callback=roots if getattr(self,'use_roots',False) else None))
-            await self.session.initialize()
+            self.initialization = await self.session.initialize()
         except BaseException:
             await self.stack.aclose()
             self.log.close()
@@ -95,6 +95,10 @@ class CodexMCPTests(unittest.IsolatedAsyncioTestCase):
         self.paired_skills = True
         await self.start_session()
         try:
+            self.assertEqual(self.initialization.serverInfo.name, 'chemellm')
+            instructions = self.initialization.instructions or ''
+            self.assertIn('chemellm@chemellm-local', instructions)
+            self.assertIn('chem_*', instructions)
             health = await self.call('chem_health')
             self.assertEqual(health['skillPairing'],'matched')
             self.assertEqual(health['skillSetPairing'],'matched')

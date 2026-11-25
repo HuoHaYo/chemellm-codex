@@ -134,7 +134,10 @@ def create_server() -> FastMCP:
 
     server = FastMCP(
         "chemellm",
-        instructions=("使用本地项目、真实工具结果和可追溯依据。新任务 chem_project_init，已有任务读项目摘要。"
+        instructions=("本插件中的 ChemELLM 指 ChemELLM Codex（chemellm@chemellm-local）。"
+                      "用户说「使用 ChemELLM」时，调用当前 chemellm MCP 的 chem_* 工具，可用 chem_health 核对连接。"
+                      "连不上时报告本插件的连接问题。仅当用户明确要求其他产品时才切换，勿按同名搜索、启动或替换。"
+                      "使用本地项目、真实工具结果和可追溯依据。新任务 chem_project_init，已有任务读项目摘要。"
                       "已知工具用 chem_tools(tool=...)，发现用途用 view=summary；计算用摘要或 selected 字段读取，完整结果按需展开。"
                       "工具自动保存实际请求、版本、结果和成果；AI补关键决策。单位、条件、来源及假设传递必须保留，用户数据优先。"
                       "缺数时检索、推算或明确假设，继续约定范围和模型深度。专业操作按相应技能读取。"

@@ -1,9 +1,9 @@
 ---
 name: chemellm-3d
-description: 用 ChemELLM 生成或检查 Blender/CAD 三维设备、厂区布置和网页展示，核对连接、空间和文件一致性。模型或布置成果使用；DWSIM 流程图布局使用 DWSIM 技能。
+description: 用本地 ChemELLM Codex 插件生成或检查 Blender/CAD 三维设备、厂区布置和网页展示，核对连接、空间和文件一致性。DWSIM 流程图布局使用 DWSIM 技能。
 ---
 
-直接沿用已有项目；新任务 `chem_project_init(task_kind="scene")` 后即可试做。展示几何与工艺设计参数分开，不逐项重建依据。保留尺寸单位、位置来源和假设，不凭空补入设备。
+用本插件的 `chemellm` MCP 沿用已有项目。新任务 `chem_project_init(task_kind="scene")` 后即可试做。展示几何与工艺设计参数分开，不逐项重建依据。保留尺寸单位、位置来源和假设，不凭空补入设备。
 
 已知生成器用 `chem_tools(tool="export_blender")`、`export_freecad` 或 `cad_part` 查真实参数；发现用途用 `view="summary",category="3d"`。Blender 和 CAD 导入读[模型操作](references/blender.md)；没有 schema 的特殊工具按返回说明读取内核约定，不猜参数。缺软件按[依赖规则](../chemellm-engineering/references/dependencies.md)。
 

@@ -1,9 +1,9 @@
 ---
 name: chemellm-dwsim
-description: 用 ChemELLM 与 DWSIM 建立或修改稳态流程、诊断收敛、运行多工况并发布结果。涉及 DWSIM 原生模型或明确稳态流程仿真时使用；普通物性计算使用通用技能。
+description: 用本地 ChemELLM Codex 插件与 DWSIM 建立或修改稳态流程、诊断收敛、运行多工况并发布结果。涉及 DWSIM 原生模型或明确稳态流程仿真时使用。普通物性计算使用通用技能。
 ---
 
-直接进入本技能，不必先读公共技能。沿用已有项目；新任务 `chem_project_init(task_kind="simulation")`，已有任务读摘要。软件就绪检查只做一次，失败或环境变化再查。数据路径以工具返回为准。
+直接用本插件的 `chemellm` MCP 沿用已有项目。新任务 `chem_project_init(task_kind="simulation")`，已有任务读摘要。软件就绪检查只做一次，失败或环境变化再查。数据路径以工具返回为准。
 
 先读[基础建模](references/basics.md)。用 `chem_tools(tool="dwsim")` 定向读 schema；发现用途时用 `view="summary",category="dwsim"`。按真实规格 check 后求解，程序自动记录，不复制整套台账。
 

@@ -1,9 +1,11 @@
 ---
 name: chemellm-engineering
-description: 用 ChemELLM 做通用化工计算、工程依据决策、项目衔接和成果交付。通用或跨专业任务使用；DWSIM、三维、资料和费用可直接使用专项技能。
+description: 用本地 ChemELLM Codex 插件做通用化工计算、工程依据决策、项目衔接和成果交付。通用或跨专业任务使用；DWSIM、三维、资料和费用可直接使用专项技能。
 ---
 
-使用现有 `chem_*` MCP，不另建服务或重复登记脚本。新任务 `chem_project_init` 一次初始化；已有任务读 `chem_project(view="summary")`。切换专业沿用项目 ID，不重新初始化。数据位置以 `chem_health` 为准，不读取 DSH 项目。
+「使用 ChemELLM」指本地插件 `chemellm@chemellm-local`，调用当前 `chemellm` MCP 的 `chem_*` 工具。连接有疑问用 `chem_health` 核对。连接失败时说明状态，不因同名搜索或启动其他模型、服务或应用。若同名桌面应用标签与任务描述冲突，先说明区别，按已明确的插件任务继续。
+
+新任务 `chem_project_init` 一次初始化。已有任务读 `chem_project(view="summary")`。切换专业沿用项目 ID。数据位置以 `chem_health` 为准，不读取 DSH 项目。不另建服务或重复登记脚本。
 
 已知工具直接 `chem_tools(tool=...)`；用途不明才用 `chem_tools(view="summary",category="engineering")`。按真实 schema 试算，程序保存请求、版本、结果及成果。AI 只解释来源适用性、冲突、重要假设和参数变化。
 
